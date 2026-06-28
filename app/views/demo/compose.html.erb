@@ -1,0 +1,21 @@
+<% content_for :title, "Compose" %>
+
+<main class="shell">
+  <section class="hero">
+    <p class="eyebrow">bottom sheet</p>
+    <h1 style="font-size: clamp(1.8rem, 7vw, 2.4rem)">Compose</h1>
+    <p>This URL is presented as a native bottom sheet with a WebView body.</p>
+  </section>
+
+  <section class="panel">
+    <form class="form">
+      <label for="subject">Subject</label>
+      <input id="subject" type="text" placeholder="What's it about?">
+
+      <label for="body">Message</label>
+      <textarea id="body" placeholder="Write something short…"></textarea>
+
+      <button type="button">Send message</button>
+    </form>
+  </section>
+</main>

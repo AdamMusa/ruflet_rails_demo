@@ -1,0 +1,80 @@
+<% content_for :title, "Ruflet Rails Demo" %>
+
+<%= ruflet_appbar "Demo", leading: { icon: "menu", action: "drawer" } do %>
+  <%= ruflet_appbar_action "settings", settings_path, payload: { title: "Settings", leading: { icon: "close", action: "back" } } %>
+<% end %>
+
+<%= ruflet_drawer do %>
+  <%= ruflet_drawer_item "Home", root_path, icon: "home", selected: true %>
+  <%= ruflet_drawer_item "Inbox", inbox_path, icon: "mail", nav: :root %>
+  <%= ruflet_drawer_item "Profile", profile_path, icon: "person", nav: :root %>
+  <%= ruflet_drawer_item "Settings", settings_path, icon: "settings", nav: :push %>
+<% end %>
+
+<%= ruflet_bottom_nav do %>
+  <%= ruflet_nav_item "Home", root_path, icon: "home", selected: true %>
+  <%= ruflet_nav_item "Inbox", inbox_path, icon: "mail" %>
+  <%= ruflet_nav_item "Profile", profile_path, icon: "person" %>
+<% end %>
+
+<%= ruflet_navigation_rail extended: true, breakpoint: 720 do %>
+  <%= ruflet_rail_item "Home", root_path, icon: "home", selected: true %>
+  <%= ruflet_rail_item "Inbox", inbox_path, icon: "mail" %>
+  <%= ruflet_rail_item "Profile", profile_path, icon: "person" %>
+  <%= ruflet_rail_item "Settings", settings_path, icon: "settings", nav: :push %>
+<% end %>
+
+<main class="shell">
+  <section class="hero">
+    <p class="eyebrow">ruflet_rails native shell</p>
+    <h1>Rails views, native chrome.</h1>
+    <p>
+      Every screen below is a plain ERB page in a WebView. Ruflet reads
+      <code>data-ruflet-*</code> annotations and turns selected links into native
+      screens, appbars, tabs, sheets, dialogs, and toasts — no JavaScript glue.
+    </p>
+  </section>
+
+  <p class="section-label">Navigate</p>
+  <section class="grid">
+    <%= link_to "Open Inbox", inbox_path,
+          class: "action-card",
+          data: { ruflet_screen: { action: "push", title: "Inbox", leading: { icon: "close", action: "back" } }.to_json } %>
+
+    <%= link_to "Compose Sheet", compose_path,
+          class: "action-card",
+          data: { ruflet_screen: { action: "sheet", title: "Compose" }.to_json } %>
+
+    <%= link_to "Replace → Settings", settings_path,
+          class: "action-card",
+          data: { ruflet_screen: { action: "replace", title: "Settings", leading: { icon: "close", action: "back" } }.to_json } %>
+
+    <%= link_to "Switch Root", profile_path,
+          class: "action-card",
+          data: { ruflet_screen: { action: "root", title: "Profile" }.to_json } %>
+  </section>
+
+  <p class="section-label">Native actions</p>
+  <section class="grid">
+    <%= link_to "Toast", "#",
+          class: "action-card",
+          data: { ruflet_action: { component: "toast", message: "Hello from Rails ERB" }.to_json } %>
+
+    <%= link_to "Dialog", "#",
+          class: "action-card",
+          data: { ruflet_action: { component: "dialog", title: "Native dialog", content: "This dialog was requested by a plain Rails link." }.to_json } %>
+
+    <%= ruflet_share_link "Share", "#",
+          text: "Ruflet Rails turns ERB into native shell actions.",
+          title: "Ruflet Rails Demo",
+          class: "action-card" %>
+
+    <%= ruflet_copy_button "Copy", text: "Copied from Ruflet Rails", class: "action-card" %>
+
+    <%= ruflet_launch_link "Open Site", "https://flutteronrails.com", class: "action-card" %>
+
+    <%= ruflet_haptic_button "Haptic", style: "light", class: "action-card" %>
+  </section>
+
+  <p class="footnote">Powered by ruflet_rails · Rails stays Rails</p>
+</main>

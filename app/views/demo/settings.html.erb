@@ -1,0 +1,33 @@
+<% content_for :title, "Settings" %>
+
+<%= tag.div hidden: true,
+      data: { ruflet_appbar: { title: "Settings", leading: { icon: "close", action: "back" } }.to_json } %>
+
+<main class="shell">
+  <section class="hero">
+    <p class="eyebrow">replace or appbar action</p>
+    <h1 style="font-size: clamp(1.8rem, 7vw, 2.4rem)">Settings</h1>
+    <p>This page demonstrates opening a URL with native appbar chrome.</p>
+  </section>
+
+  <section class="panel">
+    <div class="list">
+      <label class="row">
+        <span>Native mode</span>
+        <span class="switch"><input type="checkbox" checked><span class="track"></span></span>
+      </label>
+      <label class="row">
+        <span>WebView body</span>
+        <span class="switch"><input type="checkbox" checked><span class="track"></span></span>
+      </label>
+      <label class="row">
+        <span>Haptic feedback</span>
+        <span class="switch"><input type="checkbox"><span class="track"></span></span>
+      </label>
+      <label class="row">
+        <span>Dark appbar</span>
+        <span class="switch"><input type="checkbox"><span class="track"></span></span>
+      </label>
+    </div>
+  </section>
+</main>

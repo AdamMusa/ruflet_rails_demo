@@ -1,0 +1,21 @@
+<% content_for :title, "Inbox" %>
+
+<%= tag.div hidden: true,
+      data: { ruflet_appbar: { title: "Inbox", leading: { icon: "close", action: "back" } }.to_json } %>
+
+<main class="shell">
+  <section class="hero">
+    <p class="eyebrow">native push screen</p>
+    <h1 style="font-size: clamp(1.8rem, 7vw, 2.4rem)">Inbox</h1>
+    <p>The body is still this Rails URL in a WebView. The appbar above is native.</p>
+  </section>
+
+  <section class="panel">
+    <div class="list">
+      <p><strong>Launch notes</strong><span>Tabs are declared from the home nav</span></p>
+      <p><strong>Screen chrome</strong><span>Leading close is regular payload data</span></p>
+      <p><strong>Rails stays Rails</strong><span>Links work normally outside Ruflet</span></p>
+      <p><strong>WebView body</strong><span>Rendered straight from ERB</span></p>
+    </div>
+  </section>
+</main>

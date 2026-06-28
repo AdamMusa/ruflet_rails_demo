@@ -1,0 +1,27 @@
+<% content_for :title, "Profile" %>
+
+<%= tag.div hidden: true,
+      data: { ruflet_appbar: { title: "Profile", leading: { icon: "close", action: "back" } }.to_json } %>
+
+<main class="shell">
+  <section class="hero">
+    <p class="eyebrow">root navigation</p>
+  </section>
+
+  <section class="panel">
+    <div class="profile-head">
+      <div class="avatar">RR</div>
+      <div>
+        <h1>Ruflet Rails</h1>
+        <div class="sub">native shell · WebView body</div>
+      </div>
+    </div>
+    <p>Root navigation replaces the stack with this WebView screen.</p>
+
+    <div class="stats">
+      <div class="stat"><span class="num">5</span><span class="cap">Screens</span></div>
+      <div class="stat"><span class="num">8</span><span class="cap">Actions</span></div>
+      <div class="stat"><span class="num">0</span><span class="cap">JS glue</span></div>
+    </div>
+  </section>
+</main>

@@ -1,0 +1,19 @@
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/debug-1.11.1/ext/debug
+/opt/homebrew/opt/ruby/bin/ruby extconf.rb
+creating Makefile
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/debug-1.11.1/ext/debug
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-3z063y sitelibdir\=./.gem.20260628-35482-3z063y clean
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/debug-1.11.1/ext/debug
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-3z063y sitelibdir\=./.gem.20260628-35482-3z063y
+compiling debug.c
+compiling iseq_collector.c
+linking shared-object debug/debug.bundle
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/debug-1.11.1/ext/debug
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-3z063y sitelibdir\=./.gem.20260628-35482-3z063y install
+/usr/bin/install -c -m 0755 debug.bundle ./.gem.20260628-35482-3z063y/debug
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/debug-1.11.1/ext/debug
+make DESTDIR\= sitearchdir\=./.gem.20260628-35482-3z063y sitelibdir\=./.gem.20260628-35482-3z063y clean

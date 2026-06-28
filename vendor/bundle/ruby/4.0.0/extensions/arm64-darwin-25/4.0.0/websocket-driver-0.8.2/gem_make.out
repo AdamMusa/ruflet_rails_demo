@@ -1,0 +1,18 @@
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/websocket-driver-0.8.2/ext/websocket-driver
+/opt/homebrew/opt/ruby/bin/ruby extconf.rb
+creating Makefile
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/websocket-driver-0.8.2/ext/websocket-driver
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-vkawc8 sitelibdir\=./.gem.20260628-35482-vkawc8 clean
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/websocket-driver-0.8.2/ext/websocket-driver
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-vkawc8 sitelibdir\=./.gem.20260628-35482-vkawc8
+compiling websocket_mask.c
+linking shared-object websocket_mask.bundle
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/websocket-driver-0.8.2/ext/websocket-driver
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-vkawc8 sitelibdir\=./.gem.20260628-35482-vkawc8 install
+/usr/bin/install -c -m 0755 websocket_mask.bundle ./.gem.20260628-35482-vkawc8
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/websocket-driver-0.8.2/ext/websocket-driver
+make DESTDIR\= sitearchdir\=./.gem.20260628-35482-vkawc8 sitelibdir\=./.gem.20260628-35482-vkawc8 clean

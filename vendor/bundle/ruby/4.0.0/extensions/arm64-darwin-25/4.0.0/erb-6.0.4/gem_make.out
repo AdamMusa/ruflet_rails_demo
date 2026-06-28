@@ -1,0 +1,19 @@
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/erb-6.0.4/ext/erb/escape
+/opt/homebrew/opt/ruby/bin/ruby extconf.rb
+checking for rb_ext_ractor_safe() in ruby.h... yes
+creating Makefile
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/erb-6.0.4/ext/erb/escape
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-c3nmlm sitelibdir\=./.gem.20260628-35482-c3nmlm clean
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/erb-6.0.4/ext/erb/escape
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-c3nmlm sitelibdir\=./.gem.20260628-35482-c3nmlm
+compiling escape.c
+linking shared-object erb/escape.bundle
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/erb-6.0.4/ext/erb/escape
+make -j9 DESTDIR\= sitearchdir\=./.gem.20260628-35482-c3nmlm sitelibdir\=./.gem.20260628-35482-c3nmlm install
+/usr/bin/install -c -m 0755 escape.bundle ./.gem.20260628-35482-c3nmlm/erb
+
+current directory: /Users/macbookpro/Documents/Izeesoft/RailsApp/ruflet_rails_demo/vendor/bundle/ruby/4.0.0/gems/erb-6.0.4/ext/erb/escape
+make DESTDIR\= sitearchdir\=./.gem.20260628-35482-c3nmlm sitelibdir\=./.gem.20260628-35482-c3nmlm clean
