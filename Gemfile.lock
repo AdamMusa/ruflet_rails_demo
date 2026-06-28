@@ -6,7 +6,7 @@ PATH
 PATH
   remote: ../../FlutterApp/ruflet/packages/ruflet_rails
   specs:
-    ruflet_rails (0.0.13)
+    ruflet_rails (0.0.14)
       rails (>= 7.0)
       ruflet (>= 0.0.16)
       ruflet_core (>= 0.0.16)
@@ -439,7 +439,7 @@ CHECKSUMS
   ruby-progressbar (1.13.0) sha256=80fc9c47a9b640d6834e0dc7b3c94c9df37f08cb072b7761e4a71e22cff29b33
   ruflet (0.0.16)
   ruflet_core (0.0.16)
-  ruflet_rails (0.0.13)
+  ruflet_rails (0.0.14)
   ruflet_server (0.0.16)
   securerandom (0.4.1) sha256=cc5193d414a4341b6e225f0cb4446aceca8e50d5e1888743fac16987638ea0b1
   sqlite3 (2.9.5-aarch64-linux-gnu) sha256=78075b6337d3d182c6d2b4691049ed45cd220826160c9ea18946bf6a1de200dc
