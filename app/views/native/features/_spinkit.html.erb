@@ -1,0 +1,26 @@
+<%= text "All Ruflet SpinKit loading indicators use the same API as Ruflet Studio.", class: "text-sm text-slate-500" %>
+<%= row wrap: true, run_spacing: 22, class: "gap-4" do %>
+  <% [
+    [:rotating_circle, "Rotating Circle"], [:rotating_plain, "Rotating Plain"],
+    [:double_bounce, "Double Bounce"], [:wave, "Wave"], [:wandering_cubes, "Wandering Cubes"],
+    [:fading_four, "Fading Four"], [:fading_cube, "Fading Cube"], [:pulse, "Pulse"],
+    [:chasing_dots, "Chasing Dots"], [:three_bounce, "Three Bounce"], [:circle, "Circle"],
+    [:cube_grid, "Cube Grid"], [:fading_circle, "Fading Circle"], [:folding_cube, "Folding Cube"],
+    [:pumping_heart, "Pumping Heart"], [:hour_glass, "Hour Glass"], [:pouring_hour_glass, "Pouring Hour Glass"],
+    [:fading_grid, "Fading Grid"], [:ring, "Ring"], [:ripple, "Ripple"], [:dual_ring, "Dual Ring"],
+    [:spinning_circle, "Spinning Circle"], [:spinning_lines, "Spinning Lines"],
+    [:square_circle, "Square Circle"], [:three_in_out, "Three In Out"],
+    [:dancing_square, "Dancing Square"], [:piano_wave, "Piano Wave"],
+    [:pulsing_grid, "Pulsing Grid"], [:wave_spinner, "Wave Spinner"]
+  ].each_with_index do |(variant, label), index| %>
+    <% color = %w[#69db7c #74c0fc #ffa94d #b197fc #ff6b6b #3bc9db #f783ac #a9e34b #ffd43b #4dabf7][index % 10] %>
+    <%= container width: 100 do %>
+      <%= column class: "gap-2 items-center" do %>
+      <%= container class: "h-14 items-center justify-center" do %>
+        <%= spinkit variant => { color: color, size: 38 } %>
+      <% end %>
+      <%= text label, class: "text-xs text-slate-500 text-center" %>
+      <% end %>
+    <% end %>
+  <% end %>
+<% end %>

@@ -1,0 +1,8 @@
+<%# h-full so the screen owns the whole viewport: examples with a preview,
+    a map or a player can expand into it instead of sitting in a strip at the
+    top with dead space underneath. %>
+<%= appbar @feature_title %>
+
+<%= column class: "p-6 gap-4 h-full" do %>
+  <%= render partial: "native/features/#{@feature}" %>
+<% end %>

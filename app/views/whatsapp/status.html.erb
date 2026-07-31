@@ -1,0 +1,27 @@
+<%= appbar "Status", class: "bg-emerald-600",
+      leading_icon: "arrow_back", leading_href: native_home_path, leading_nav: "root" %>
+
+<%= column class: "gap-0" do %>
+  <%= row class: "gap-3 items-center px-4 py-4" do %>
+    <%= avatar "ME", class: "bg-emerald-500" %>
+    <%= column class: "gap-1 flex-1" do %>
+      <%= text "My status", class: "font-semibold text-slate-900" %>
+      <%= text "Tap to add status update", class: "text-sm text-slate-500" %>
+    <% end %>
+    <%= icon "photo_camera", class: "text-emerald-600" %>
+  <% end %>
+  <hr>
+  <%= text "Recent updates", class: "px-4 py-2 text-xs text-slate-400 font-semibold" %>
+  <% [["Ada Lovelace", "5 minutes ago", "bg-violet-500", "AL"],
+      ["Grace Hopper", "20 minutes ago", "bg-sky-500", "GH"]].each do |name, when_, color, initials| %>
+    <%= row class: "gap-3 items-center px-4 py-3" do %>
+      <%= avatar initials, class: color %>
+      <%= column class: "gap-1 flex-1" do %>
+        <%= text name, class: "font-semibold text-slate-900" %>
+        <%= text when_, class: "text-sm text-slate-500" %>
+      <% end %>
+    <% end %>
+  <% end %>
+<% end %>
+
+<%= render "nav", active: "status" %>

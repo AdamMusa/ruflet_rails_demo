@@ -1,0 +1,16 @@
+<%= text "Editor ready", id: "editor-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2" do %>
+  <%= button "Editable", service: "control", target: "studio-editor", method: "update", args: { read_only: false }, result_target: "editor-status" %>
+  <%= button "Read-only", service: "control", target: "studio-editor", method: "update", args: { read_only: true }, result_target: "editor-status" %>
+  <%= button "Focus", service: "control", target: "studio-editor", method: "focus", result_target: "editor-status" %>
+<% end %>
+<%= container class: "h-96 rounded-xl" do %>
+  <%= code_editor <<~RUBY, id: "studio-editor", language: "ruby", code_theme: "atom-one-dark", read_only: false, height: 380, on_change_target: "editor-status", on_change_prefix: "Changed: " %>
+    # A tiny Ruflet app
+    class App < Ruflet::App
+      def view(page)
+        page.add(text(value: "Hello from Ruflet!"))
+      end
+    end
+  RUBY
+<% end %>

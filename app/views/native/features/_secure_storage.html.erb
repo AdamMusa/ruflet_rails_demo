@@ -1,0 +1,11 @@
+<%= secure_storage %>
+<%= text "Secure storage ready", id: "secure-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Write", service: "secure-set", key: "ruflet_demo", value: "secret", result_target: "secure-status" %>
+  <%= button "Read", service: "secure-get", key: "ruflet_demo", result_target: "secure-status" %>
+  <%= button "Contains", service: "secure-contains", key: "ruflet_demo", result_target: "secure-status" %>
+  <%= button "Read all", service: "secure-all", result_target: "secure-status" %>
+  <%= button "Delete", service: "secure-remove", key: "ruflet_demo", result_target: "secure-status" %>
+  <%= button "Availability", service: "secure-availability", result_target: "secure-status" %>
+  <%= button "Clear", service: "secure-clear", result_target: "secure-status" %>
+<% end %>

@@ -1,0 +1,23 @@
+<%= appbar "Calls", class: "bg-emerald-600",
+      leading_icon: "arrow_back", leading_href: native_home_path, leading_nav: "root" %>
+
+<%= column class: "gap-0" do %>
+  <% [["Ada Lovelace", "call_made", "Today, 09:12", "bg-violet-500", "AL", "text-emerald-600"],
+      ["Alan Turing", "call_received", "Today, 08:40", "bg-emerald-500", "AT", "text-emerald-600"],
+      ["Grace Hopper", "call_missed", "Yesterday", "bg-sky-500", "GH", "text-red-500"]].each do |name, dir, when_, color, initials, tint| %>
+    <%= row class: "gap-3 items-center px-4 py-3" do %>
+      <%= avatar initials, class: color %>
+      <%= column class: "gap-1 flex-1" do %>
+        <%= text name, class: "font-semibold text-slate-900" %>
+        <%= row class: "gap-1 items-center" do %>
+          <%= icon dir, class: tint %>
+          <%= text when_, class: "text-sm text-slate-500" %>
+        <% end %>
+      <% end %>
+      <%= icon "call", class: "text-emerald-600" %>
+    <% end %>
+    <hr>
+  <% end %>
+<% end %>
+
+<%= render "nav", active: "calls" %>

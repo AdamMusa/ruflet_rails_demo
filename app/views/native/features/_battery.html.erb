@@ -1,0 +1,5 @@
+<%# Battery — mirrors ruflet_studio: level / state / saver, auto-populated on
+    load and refreshed whenever the battery state changes. %>
+<%= battery on_state_change_service: "battery", on_state_change_result_target: "battery-status" %>
+<%= text "Battery level: -\nBattery state: -\nBattery saver: -", id: "battery-status", class: "text-sm text-slate-500 selectable" %>
+<%= button "Refresh battery info", service: "battery", result_target: "battery-status", on_load: true %>

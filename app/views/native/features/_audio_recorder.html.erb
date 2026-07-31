@@ -1,0 +1,8 @@
+<%# Audio recorder — mirrors ruflet_studio: resolve a writable path, check the
+    mic permission, then record to a .wav. Status reports each step. %>
+<%= audio_recorder %>
+<%= text "Audio recorder ready", id: "recorder-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap items-center" do %>
+  <%= button "Record", service: "audio-recorder-start", icon: "mic", result_target: "recorder-status" %>
+  <%= button "Stop", service: "audio-recorder-stop", icon: "stop", variant: "outlined", result_target: "recorder-status" %>
+<% end %>

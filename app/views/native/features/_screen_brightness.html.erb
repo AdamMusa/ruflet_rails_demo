@@ -1,0 +1,12 @@
+<%= screen_brightness %>
+<%= text "Application brightness: -\nSystem brightness: -", id: "brightness-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Refresh", service: "brightness-get", result_target: "brightness-status" %>
+  <%= button "System value", service: "brightness-system-get", result_target: "brightness-status" %>
+  <%= button "System change", service: "brightness-can-change-system", result_target: "brightness-status" %>
+  <%= button "App 50%", service: "brightness", value: 0.5, result_target: "brightness-status" %>
+  <%= button "System 50%", service: "brightness-system", value: 0.5, result_target: "brightness-status" %>
+  <%= button "Reset app", service: "brightness-reset", result_target: "brightness-status" %>
+  <%= button "Animate on", service: "brightness-animate-set", value: true, result_target: "brightness-status" %>
+  <%= button "Auto reset on", service: "brightness-auto-reset-set", value: true, result_target: "brightness-status" %>
+<% end %>

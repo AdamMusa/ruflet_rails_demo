@@ -1,0 +1,2141 @@
+# frozen_string_literal: true
+
+require "fileutils"
+require "find"
+require "json"
+require "open3"
+require "pathname"
+require "rbconfig"
+require "uri"
+require "yaml"
+
+module Ruflet
+  module CLI
+    module BuildCommand
+      include FlutterSdk
+      include EnvironmentSetup
+      include AndroidSdk
+      CLIENT_EXTENSION_MAP = {
+        "ads" => { package: "flet_ads", alias: "ruflet_ads" },
+        "audio" => { package: "flet_audio", alias: "ruflet_audio" },
+        "audio_recorder" => { package: "flet_audio_recorder", alias: "ruflet_audio_recorder" },
+        "camera" => { package: "flet_camera", alias: "ruflet_camera" },
+        "charts" => { package: "flet_charts", alias: "ruflet_charts" },
+        "code_editor" => { package: "flet_code_editor", alias: "ruflet_code_editor" },
+        "color_pickers" => { package: "flet_color_pickers", alias: "ruflet_color_picker" },
+        "datatable2" => { package: "flet_datatable2", alias: "ruflet_datatable2" },
+        "flashlight" => { package: "flet_flashlight", alias: "ruflet_flashlight" },
+        "geolocator" => { package: "flet_geolocator", alias: "ruflet_geolocator" },
+        "lottie" => { package: "flet_lottie", alias: "ruflet_lottie" },
+        "map" => { package: "flet_map", alias: "ruflet_map" },
+        "permission_handler" => { package: "flet_permission_handler", alias: "ruflet_permission_handler" },
+        "rive" => { package: "flet_rive", alias: "ruflet_rive" },
+        "secure_storage" => { package: "flet_secure_storage", alias: "ruflet_secure_storage" },
+        "spinkit" => { package: "flet_spinkit", alias: "ruflet_spinkit" },
+        "video" => { package: "flet_video", alias: "ruflet_video" },
+        "webview" => { package: "flet_webview", alias: "ruflet_webview" }
+      }.freeze
+
+      SERVICE_EXTENSION_MAP = {
+        "camera" => %w[camera permission_handler],
+        "microphone" => %w[audio_recorder permission_handler],
+        "location" => %w[geolocator permission_handler],
+        "motion" => %w[permission_handler]
+      }.freeze
+
+      DEFAULT_SERVICE_NATIVE_REQUIREMENTS = {
+        "camera" => {
+          android_permissions: ["android.permission.CAMERA"],
+          ios_info: {
+            "NSCameraUsageDescription" => "Camera access is required for camera experiences."
+          },
+          macos_info: {
+            "NSCameraUsageDescription" => "Camera access is required for camera experiences."
+          },
+          macos_entitlements: {
+            "com.apple.security.device.camera" => true
+          },
+          ios_permission_definitions: %w[
+            PERMISSION_CAMERA=1
+          ]
+        },
+        "microphone" => {
+          android_permissions: ["android.permission.RECORD_AUDIO"],
+          ios_info: {
+            "NSMicrophoneUsageDescription" => "Microphone access is required for audio recording."
+          },
+          macos_info: {
+            "NSMicrophoneUsageDescription" => "Microphone access is required for audio recording."
+          },
+          macos_entitlements: {
+            "com.apple.security.device.audio-input" => true
+          },
+          ios_permission_definitions: %w[
+            PERMISSION_MICROPHONE=1
+          ]
+        },
+        "motion" => {
+          ios_info: {
+            "NSMotionUsageDescription" => "Motion access is required for motion and sensor readings."
+          },
+          ios_permission_definitions: %w[
+            PERMISSION_SENSORS=1
+          ]
+        },
+        "location" => {
+          android_permissions: [
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION"
+          ],
+          ios_info: {
+            "NSLocationWhenInUseUsageDescription" => "Location access is required for location-aware experiences."
+          },
+          macos_info: {
+            "NSLocationUsageDescription" => "Location access is required for location-aware experiences."
+          },
+          macos_entitlements: {
+            "com.apple.security.personal-information.location" => true
+          },
+          ios_permission_definitions: %w[
+            PERMISSION_LOCATION=1
+          ]
+        }
+      }.freeze
+
+      def command_build(args)
+        with_project_build_lock { run_build_command(args) }
+      end
+
+      # Concurrent builds share build/client and corrupt each other's state
+      # (missing app.dill, Xcode build.db I/O errors). flock is released
+      # automatically when the process exits, so the lock cannot go stale.
+      def with_project_build_lock
+        lock_dir = File.join(Dir.pwd, "build")
+        FileUtils.mkdir_p(lock_dir)
+        lock_path = File.join(lock_dir, ".ruflet_build.lock")
+        File.open(lock_path, File::RDWR | File::CREAT, 0o644) do |file|
+          unless file.flock(File::LOCK_EX | File::LOCK_NB)
+            owner = file.read.to_s.strip
+            warn "Another ruflet build is already running for this project#{owner.empty? ? '' : " (#{owner})"}."
+            warn "Concurrent builds share the same build directory and corrupt each other."
+            warn "Wait for it to finish, then retry."
+            return 1
+          end
+          file.truncate(0)
+          file.write("pid=#{Process.pid} started=#{Time.now}")
+          file.flush
+          yield
+        end
+      end
+
+      def run_build_command(args)
+        self_contained = args.delete("--self")
+        verbose = args.delete("--verbose") || args.delete("-v")
+        platform = (args.shift || "").downcase
+        if platform.empty?
+          warn "Usage: ruflet build <apk|android|ios|aab|web|macos|windows|linux> [--self] [--verbose]"
+          return 1
+        end
+
+        flutter_cmd = flutter_build_command(platform)
+        unless flutter_cmd
+          warn "Unsupported build target: #{platform}"
+          return 1
+        end
+
+        ensure_ruflet_build_assets(verbose: !!verbose)
+        client_dir = ensure_flutter_client_dir(verbose: !!verbose)
+        unless client_dir
+          warn "Could not find Flutter client directory."
+          warn "Set RUFLET_CLIENT_DIR or let Ruflet manage the client under ./build/client"
+          return 1
+        end
+
+        build_note("Preparing #{platform} build (#{self_contained ? 'self-contained' : 'server-driven'})")
+        config = load_ruflet_config
+        tools = ensure_flutter!("build", client_dir: client_dir)
+        command_env = build_tool_env(tools[:env], platform, client_dir)
+        ok = prepare_flutter_client(
+          client_dir,
+          platform: platform,
+          tools: tools.merge(env: command_env),
+          config: config,
+          self_contained: !!self_contained,
+          verbose: !!verbose
+        )
+        return 1 unless ok
+
+        build_args = [*flutter_cmd, *args]
+        build_args << "--codesign" if ios_device_build_needs_codesign_flag?(platform, build_args)
+        target_entrypoint = flutter_target_entrypoint(client_dir, self_contained: !!self_contained)
+        build_args += ["--target", target_entrypoint] if target_entrypoint
+        backend_url = configured_backend_url(config)
+        if self_contained
+          build_args += ["--dart-define", "RUFLET_BACKEND_URL=#{backend_url}"] if backend_url
+          # Pin the embedded entry project so the runtime doesn't have to guess.
+          # Apps that bundle nested projects (e.g. ruflet_studio's standalone_apps,
+          # each with their own main.rb) otherwise trip auto-discovery.
+          build_args += ["--dart-define", "RUFLET_EMBEDDED_PROJECT=#{self_contained_project_name}"]
+        else
+          unless backend_url
+            warn "build config error: backend_url is required for server-driven builds"
+            warn "Set app.backend_url or backend_url in ruflet.yaml"
+            return 1
+          end
+          build_args += ["--dart-define", "RUFLET_BACKEND_URL=#{backend_url}"]
+        end
+        build_args << "-v" if verbose
+
+        build_log(verbose, "mode=#{self_contained ? 'self' : 'server'}")
+        build_log(verbose, "client_dir=#{client_dir}")
+        build_log(verbose, "flutter=#{tools[:flutter]}")
+        build_log(verbose, "dart=#{tools[:dart]}")
+        build_log(verbose, "target=#{target_entrypoint}") if target_entrypoint
+        build_log(verbose, "command=#{([tools[:flutter]] + build_args).join(' ')}")
+
+        build_note("Running Flutter #{build_args.join(' ')}")
+        ok = run_external_command(command_env, tools[:flutter], *build_args, chdir: client_dir, unbundled: true)
+        export_platform_build_outputs(client_dir, platform, verbose: !!verbose) if ok
+        ok ? 0 : 1
+      end
+
+      def command_install(args)
+        verbose = args.delete("--verbose") || args.delete("-v")
+        device_id = extract_option_value!(args, "--device", "-d")
+
+        client_dir = ensure_flutter_client_dir(verbose: !!verbose)
+        unless client_dir
+          warn "Could not find Flutter client directory."
+          warn "Set RUFLET_CLIENT_DIR or let Ruflet manage the client under ./build/client"
+          return 1
+        end
+
+        tools = ensure_flutter!("install", client_dir: client_dir)
+        discovery_env = unbundled_command_env(tools[:env])
+        device_id ||= select_install_device(
+          flutter: tools[:flutter],
+          env: discovery_env,
+          client_dir: client_dir
+        )
+        return 1 unless device_id
+
+        install_platform = install_platform_for_device(device_id)
+        command_env = install_tool_env(tools[:env], client_dir, platform: install_platform)
+        unless sync_built_outputs_for_install(client_dir, platform: install_platform, verbose: !!verbose)
+          warn "Could not find built app outputs under ./build"
+          warn "Run `ruflet build ...` first, then `ruflet install`."
+          return 1
+        end
+        unless validate_install_artifacts(client_dir, platform: install_platform, device_id: device_id)
+          return 1
+        end
+
+        install_args = ["install"]
+        install_args += ["-d", device_id] if device_id
+        install_args << "-v" if verbose
+
+        build_log(verbose, "client_dir=#{client_dir}")
+        build_log(verbose, "flutter=#{tools[:flutter]}")
+        build_log(verbose, "dart=#{tools[:dart]}")
+        build_log(verbose, "install_command=#{([tools[:flutter]] + install_args).join(' ')}")
+        build_note("Installing app#{device_id ? " to device #{device_id}" : ""}")
+
+        ok = run_external_command(command_env, tools[:flutter], *install_args, chdir: client_dir, unbundled: true)
+        ok ? 0 : 1
+      end
+
+      private
+
+      def extract_option_value!(args, *flags)
+        flags.each do |flag|
+          index = args.index(flag)
+          next unless index
+
+          value = args[index + 1]
+          args.slice!(index, 2)
+          return value
+        end
+        nil
+      end
+
+      def select_install_device(flutter:, env:, client_dir:, input: $stdin, output: $stdout)
+        devices = discover_install_devices(flutter: flutter, env: env, client_dir: client_dir)
+        if devices.empty?
+          warn "No supported devices are connected."
+          warn "Run `ruflet devices` to check device availability."
+          return nil
+        end
+
+        output.puts "Available devices:"
+        devices.each_with_index do |device, index|
+          details = [device["targetPlatform"], device["emulator"] ? "emulator" : "physical"].compact
+          output.puts "  #{index + 1}) #{device.fetch("name", device["id"])} (#{details.join(", ")}) [#{device["id"]}]"
+        end
+
+        loop do
+          output.print "Choose a device [1-#{devices.length}]: "
+          output.flush
+          choice = input.gets
+          unless choice
+            warn "Device selection cancelled. Use `--device DEVICE_ID` for noninteractive installs."
+            return nil
+          end
+
+          index = Integer(choice.strip, exception: false)
+          return devices[index - 1]["id"] if index && index.between?(1, devices.length)
+
+          output.puts "Enter a number from 1 to #{devices.length}."
+        end
+      end
+
+      def discover_install_devices(flutter:, env:, client_dir:)
+        stdout, stderr, status = Open3.capture3(
+          env,
+          flutter,
+          "devices",
+          "--machine",
+          chdir: client_dir
+        )
+        unless status.success?
+          warn "Could not list Flutter devices."
+          warn stderr.strip unless stderr.to_s.strip.empty?
+          return []
+        end
+
+        devices = JSON.parse(stdout)
+        Array(devices).select do |device|
+          device.is_a?(Hash) && !device["id"].to_s.empty? && device["isSupported"] != false
+        end
+      rescue JSON::ParserError => e
+        warn "Could not parse Flutter device list: #{e.message}"
+        []
+      end
+
+      def ensure_flutter_client_dir(verbose: false)
+        client_dir = detect_flutter_client_dir
+        return client_dir if client_dir
+
+        bootstrapped = bootstrap_flutter_client_template
+        build_log(verbose, "bootstrapped client template at #{bootstrapped}") if bootstrapped
+        bootstrapped
+      end
+
+      def build_tool_env(env, platform, client_dir = nil)
+        if %w[android apk aab appbundle].include?(platform)
+          return android_build_env(unbundled_command_env(env))
+        end
+        return env unless %w[ios macos].include?(platform)
+
+        apple_env = unbundled_command_env(env)
+        apple_env["PATH"] = apple_build_path(apple_env["PATH"])
+        install_apple_pod_shim(client_dir, apple_env) if client_dir
+        apple_env
+      end
+
+      def install_tool_env(env, client_dir, platform: nil)
+        platform ||= inferred_install_platform
+        return build_tool_env(env, platform, client_dir) if platform
+
+        command_env = unbundled_command_env(env)
+        command_env["PATH"] = apple_build_path(command_env["PATH"])
+        install_apple_pod_shim(client_dir, command_env)
+        command_env
+      end
+
+      def inferred_install_platform
+        host_os = RbConfig::CONFIG["host_os"]
+        return "ios" if host_os.match?(/darwin/i)
+
+        nil
+      end
+
+      def export_platform_build_outputs(client_dir, platform, verbose: false)
+        exports_for(platform).each do |relative_source, relative_target|
+          source = File.join(client_dir, "build", relative_source)
+          next unless File.exist?(source)
+
+          target = File.join(user_build_root, relative_target)
+          FileUtils.rm_rf(target)
+          FileUtils.mkdir_p(File.dirname(target))
+          FileUtils.cp_r(source, target)
+          build_log(verbose, "exported #{source} -> #{target}")
+        end
+      end
+
+      def sync_built_outputs_for_install(client_dir, platform: nil, verbose: false)
+        synced = false
+
+        platforms =
+          if platform
+            install_sync_platforms(platform)
+          else
+            %w[android ios macos windows linux web apk aab appbundle]
+          end
+
+        platforms.each do |target_platform|
+          exports_for(target_platform).each do |relative_source, relative_target|
+            source = File.join(user_build_root, relative_target)
+            next unless File.exist?(source)
+
+            target = File.join(client_dir, "build", relative_source)
+            FileUtils.rm_rf(target)
+            FileUtils.mkdir_p(File.dirname(target))
+            FileUtils.cp_r(source, target)
+            build_log(verbose, "synced #{source} -> #{target}")
+            synced = true
+          end
+        end
+
+        synced
+      end
+
+      def install_sync_platforms(platform)
+        case platform
+        when "ios"
+          %w[ios]
+        when "android"
+          %w[android apk aab appbundle]
+        when "macos"
+          %w[macos]
+        when "windows"
+          %w[windows]
+        when "linux"
+          %w[linux]
+        when "web"
+          %w[web]
+        else
+          []
+        end
+      end
+
+      def install_platform_for_device(device_id)
+        return inferred_install_platform unless device_id
+
+        return "android" if device_id.include?("emulator-") || device_id.match?(/\A[a-z0-9._:-]+\z/i) && device_id != "macos" && device_id != "chrome" && !device_id.include?("-")
+        return "ios" if device_id.match?(/\A[0-9A-F-]{8,}\z/i)
+        return "macos" if device_id == "macos"
+        return "web" if device_id == "chrome"
+
+        inferred_install_platform
+      end
+
+      def validate_install_artifacts(client_dir, platform:, device_id:)
+        return true unless platform == "ios"
+
+        return validate_ios_simulator_install_artifacts(client_dir) if ios_simulator_device_id?(device_id)
+
+        device_app = File.join(client_dir, "build", "ios", "iphoneos", "Runner.app")
+        return true unless Dir.exist?(device_app)
+        return true if ios_app_signed?(device_app)
+
+        warn "install config error: iOS device app bundle is not code signed"
+        warn "Rebuild for a device with: ruflet build ios --self"
+        warn "If you intentionally built without signing, install from Xcode or rebuild without --no-codesign."
+        false
+      end
+
+      def validate_ios_simulator_install_artifacts(client_dir)
+        simulator_app = File.join(client_dir, "build", "ios", "iphonesimulator", "Runner.app")
+        return true if Dir.exist?(simulator_app)
+
+        device_app = File.join(client_dir, "build", "ios", "iphoneos", "Runner.app")
+        if Dir.exist?(device_app)
+          warn "install config error: selected device is an iOS simulator, but the latest build is for iphoneos"
+          warn "Rebuild for the simulator with: ruflet build ios --self --simulator"
+        else
+          warn "install config error: no iOS simulator app bundle was found"
+          warn "Build the simulator target first with: ruflet build ios --self --simulator"
+        end
+        false
+      end
+
+      def ios_simulator_device_id?(device_id)
+        return false if device_id.to_s.strip.empty?
+
+        device_id.match?(/\A[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\z/i)
+      end
+
+      def ios_app_signed?(app_path)
+        system("/usr/bin/codesign", "-vv", app_path, out: File::NULL, err: File::NULL)
+      end
+
+      def exports_for(platform)
+        case platform
+        when "apk", "android", "aab", "appbundle"
+          { File.join("app", "outputs") => "android" }
+        when "ios"
+          { "ios" => "ios" }
+        when "macos"
+          { "macos" => "macos" }
+        when "windows"
+          { "windows" => "windows" }
+        when "linux"
+          { "linux" => "linux" }
+        when "web"
+          { "web" => "web" }
+        else
+          {}
+        end
+      end
+
+      def detect_flutter_client_dir
+        env_dir = ENV["RUFLET_CLIENT_DIR"]
+        return env_dir if env_dir && Dir.exist?(env_dir)
+
+        hidden = hidden_flutter_client_dir
+        return hidden if Dir.exist?(hidden)
+
+        local = File.expand_path("ruflet_client", Dir.pwd)
+        return local if Dir.exist?(local)
+
+        template = File.expand_path("templates/ruflet_flutter_template", Dir.pwd)
+        return template if Dir.exist?(template)
+
+        nil
+      end
+
+      def bootstrap_flutter_client_template
+        return nil if ENV["RUFLET_CLIENT_DIR"]
+
+        target = hidden_flutter_client_dir
+        return target if Dir.exist?(target)
+
+        if Ruflet::CLI.respond_to?(:copy_ruflet_client_template, true)
+          Ruflet::CLI.send(:copy_ruflet_client_template, Dir.pwd)
+        end
+
+        Dir.exist?(target) ? target : nil
+      end
+
+      def ensure_ruflet_build_assets(force: false, verbose: false)
+        return true unless respond_to?(:download_ruflet_assets, true)
+
+        !!send(:download_ruflet_assets, force: force, verbose: verbose)
+      rescue StandardError => e
+        build_log(verbose, "ruflet asset bootstrap skipped: #{e.class}: #{e.message}")
+        false
+      end
+
+      def hidden_flutter_client_dir(root = Dir.pwd)
+        File.join(root, "build", "client")
+      end
+
+      def user_build_root(root = Dir.pwd)
+        File.join(root, "build")
+      end
+
+      def prepare_flutter_client(client_dir, platform:, tools:, config:, self_contained: false, verbose: false)
+        refresh_managed_client_template_files(client_dir, verbose: verbose)
+        sync_client_metadata(client_dir, config, verbose: verbose)
+        configure_client_runtime_mode(client_dir, self_contained: self_contained, verbose: verbose)
+        @ruflet_self_contained_build = self_contained
+        apply_service_extension_config(client_dir, config)
+        asset_flags = apply_build_config(client_dir, config)
+        if asset_flags[:error]
+          warn asset_flags[:error]
+          return false
+        end
+        announce_asset_configuration(asset_flags)
+        clear_flutter_build_state(client_dir, verbose: verbose)
+        clear_stale_platform_outputs(client_dir, platform, verbose: verbose)
+        unless ensure_flutter_platform_artifacts(client_dir, platform, tools[:env], tools[:flutter], verbose: verbose)
+          return false
+        end
+        build_note("Resolving Flutter packages")
+        build_log(verbose, "running flutter pub get")
+        unless run_external_command(tools[:env], tools[:flutter], "pub", "get", chdir: client_dir, unbundled: true)
+          warn "flutter pub get failed"
+          return false
+        end
+
+        unless ensure_native_build_dependencies(client_dir, platform, tools[:env], verbose: verbose)
+          return false
+        end
+
+        if asset_flags[:has_splash]
+          build_note("Generating splash screen with flutter_native_splash")
+          build_log(verbose, "running flutter_native_splash:create")
+          unless run_external_command(tools[:env], tools[:dart], "run", "flutter_native_splash:create", chdir: client_dir, unbundled: true)
+            warn "flutter_native_splash failed"
+            return false
+          end
+        end
+
+        if asset_flags[:has_icon]
+          build_note("Generating launcher icons with flutter_launcher_icons")
+          build_log(verbose, "running flutter_launcher_icons")
+          unless run_external_command(tools[:env], tools[:dart], "run", "flutter_launcher_icons", chdir: client_dir, unbundled: true)
+            warn "flutter_launcher_icons failed"
+            return false
+          end
+        end
+
+        true
+      end
+
+      def ensure_flutter_platform_artifacts(client_dir, platform, env, flutter, verbose: false)
+        precache_flags = flutter_precache_flags(platform)
+        return true if precache_flags.empty?
+
+        build_note("Preparing Flutter #{platform} platform artifacts")
+        build_log(verbose, "running flutter precache #{precache_flags.join(' ')}")
+        ok = run_external_command(env, flutter, "precache", *precache_flags, chdir: client_dir, unbundled: true)
+        return true if ok
+
+        warn "Flutter platform artifact setup failed for #{platform}"
+        false
+      end
+
+      def flutter_precache_flags(platform)
+        case platform
+        when "apk", "android", "aab", "appbundle"
+          ["--android"]
+        when "ios"
+          ["--ios"]
+        when "macos"
+          ["--macos"]
+        when "windows"
+          ["--windows"]
+        when "linux"
+          ["--linux"]
+        when "web"
+          ["--web"]
+        else
+          []
+        end
+      end
+
+      def ensure_native_build_dependencies(client_dir, platform, env, verbose: false)
+        case platform
+        when "ios"
+          ensure_cocoapods_install(client_dir, "ios", env, verbose: verbose)
+        when "macos"
+          ok = true
+          ok &&= ensure_cocoapods_install(client_dir, "ios", env, verbose: verbose)
+          ok &&= ensure_cocoapods_install(client_dir, "macos", env, verbose: verbose)
+          ok
+        else
+          true
+        end
+      end
+
+      def ensure_cocoapods_install(client_dir, platform_dir, env, verbose: false)
+        pod_dir = File.join(client_dir, platform_dir)
+        return true unless Dir.exist?(pod_dir)
+        return true unless File.file?(File.join(pod_dir, "Podfile"))
+
+        build_note("Running CocoaPods install for #{platform_dir}")
+        build_log(verbose, "pod install in #{pod_dir}")
+        ok =
+          if defined?(Bundler) && Bundler.respond_to?(:with_unbundled_env)
+            Bundler.with_unbundled_env do
+              run_external_command(unbundled_command_env(env), "pod", "install", chdir: pod_dir, unbundled: false)
+            end
+          else
+            run_external_command(unbundled_command_env(env), "pod", "install", chdir: pod_dir, unbundled: false)
+          end
+        return true if ok
+
+        warn "CocoaPods install failed for #{platform_dir}"
+        warn "Make sure `pod` is installed and working for the Ruby used by Flutter."
+        false
+      end
+
+      def unbundled_command_env(env)
+        command_env = env.reject { |key, _value| key.start_with?("BUNDLE_") || key == "RUBYOPT" || key == "RUBYLIB" || key.start_with?("GEM_") }
+        ensure_utf8_locale(command_env)
+      end
+
+      # CocoaPods refuses to run in a non-UTF-8 terminal and Xcode project
+      # files contain UTF-8; guarantee a UTF-8 locale for child tools.
+      def ensure_utf8_locale(env)
+        locale = env["LC_ALL"].to_s
+        locale = env["LANG"].to_s if locale.empty?
+        return env if locale.downcase.include?("utf-8") || locale.downcase.include?("utf8")
+
+        env["LANG"] = "en_US.UTF-8"
+        env["LC_ALL"] = "en_US.UTF-8"
+        env
+      end
+
+      def run_external_command(env, *cmd, chdir:, unbundled: false)
+        if unbundled && defined?(Bundler) && Bundler.respond_to?(:with_unbundled_env)
+          Bundler.with_unbundled_env do
+            system(env, *cmd, chdir: chdir)
+          end
+        else
+          system(env, *cmd, chdir: chdir)
+        end
+      end
+
+      def apple_build_path(existing_path)
+        segments = existing_path.to_s.split(File::PATH_SEPARATOR)
+        segments.reject! { |segment| segment.include?("/.gem/ruby/") && segment.end_with?("/bin") }
+
+        preferred = []
+        preferred << "/opt/homebrew/bin" if File.executable?("/opt/homebrew/bin/pod")
+        preferred << "/usr/local/bin" if File.executable?("/usr/local/bin/pod")
+
+        (preferred + segments).uniq.join(File::PATH_SEPARATOR)
+      end
+
+      def install_apple_pod_shim(client_dir, env)
+        pod_executable = resolve_working_pod_executable
+        return unless pod_executable
+
+        shim_dir = File.join(client_dir, ".ruflet", "bin")
+        FileUtils.mkdir_p(shim_dir)
+        shim_path = File.join(shim_dir, "pod")
+        File.write(
+          shim_path,
+          <<~SH
+            #!/bin/sh
+            exec "#{pod_executable}" "$@"
+          SH
+        )
+        FileUtils.chmod("+x", shim_path)
+        env["PATH"] = ([shim_dir] + env["PATH"].to_s.split(File::PATH_SEPARATOR)).uniq.join(File::PATH_SEPARATOR)
+        env["COCOAPODS_DISABLE_STATS"] = "true"
+        env["GEM_HOME"] = nil
+        env["GEM_PATH"] = nil
+        env["GEM_ROOT"] = nil
+      end
+
+      def resolve_working_pod_executable
+        return "/opt/homebrew/bin/pod" if File.executable?("/opt/homebrew/bin/pod")
+        return "/usr/local/bin/pod" if File.executable?("/usr/local/bin/pod")
+
+        nil
+      end
+
+      def configured_backend_url(config)
+        candidates = [
+          config["backend_url"],
+          config["server_url"],
+          config["ruflet_client_url"],
+          (config["app"].is_a?(Hash) ? config["app"]["backend_url"] : nil),
+          (config["app"].is_a?(Hash) ? config["app"]["server_url"] : nil),
+          (config["app"].is_a?(Hash) ? config["app"]["ruflet_client_url"] : nil)
+        ]
+        raw = candidates.find { |v| !v.to_s.strip.empty? }
+        return nil if raw.nil?
+
+        value = raw.to_s.strip
+        uri = URI.parse(value)
+        return nil unless %w[http https ws wss].include?(uri.scheme)
+        return nil if uri.host.to_s.strip.empty?
+
+        value
+      rescue URI::InvalidURIError
+        nil
+      end
+
+      def load_ruflet_config
+        config_path = ENV["RUFLET_CONFIG"] || "ruflet.yaml"
+        unless File.file?(config_path)
+          alt = "ruflet.yml"
+          config_path = alt if File.file?(alt)
+        end
+        return {} unless File.file?(config_path)
+
+        YAML.safe_load(File.read(config_path), aliases: true) || {}
+      rescue StandardError => e
+        warn "Failed to load ruflet config: #{e.class}: #{e.message}"
+        {}
+      end
+
+      def apply_build_config(client_dir, config = {})
+        config_path = ENV["RUFLET_CONFIG"] || (File.file?("ruflet.yaml") ? "ruflet.yaml" : "ruflet.yml")
+        config_present = File.file?(config_path)
+        build = config["build"] || {}
+        assets = config["assets"] || {}
+        config_dir = config_present ? File.dirname(File.expand_path(config_path)) : Dir.pwd
+
+        assets_root = build["assets_dir"] || assets["dir"] || config["assets_dir"] || "assets"
+        assets_root = File.expand_path(assets_root, config_dir)
+
+        resolve_asset = lambda do |path|
+          return nil if path.nil? || path.to_s.strip.empty?
+          full = File.expand_path(path.to_s, config_dir)
+          return full if File.file?(full)
+
+          rails_full = File.expand_path(File.join("app", path.to_s), config_dir)
+          return rails_full if File.file?(rails_full)
+
+          nil
+        end
+
+        splash_defined = key_defined?(build, "splash_screen") || key_defined?(assets, "splash_screen") || key_defined?(config, "splash_screen")
+        icon_defined = key_defined?(build, "icon_launcher") || key_defined?(assets, "icon_launcher") || key_defined?(config, "icon_launcher")
+
+        splash = resolve_asset.call(build["splash_screen"] || assets["splash_screen"] || config["splash_screen"])
+        splash_dark = resolve_asset.call(build["splash_dark"] || build["splash_dark_image"] || assets["splash_dark"])
+        icon = resolve_asset.call(build["icon_launcher"] || assets["icon_launcher"] || config["icon_launcher"])
+        icon_android = resolve_asset.call(build["icon_android"] || assets["icon_android"])
+        icon_ios = resolve_asset.call(build["icon_ios"] || assets["icon_ios"])
+        icon_web = resolve_asset.call(build["icon_web"] || assets["icon_web"])
+        icon_windows = resolve_asset.call(build["icon_windows"] || assets["icon_windows"])
+        icon_macos = resolve_asset.call(build["icon_macos"] || assets["icon_macos"])
+
+        splash_color = build["splash_color"]
+        splash_dark_color = build["splash_dark_color"] || build["splash_color_dark"]
+        icon_background = build["icon_background"]
+        theme_color = build["theme_color"]
+
+        assets_dir = File.join(client_dir, "assets")
+        FileUtils.mkdir_p(assets_dir)
+
+        copy_asset = lambda do |src, dest|
+          return unless src
+          FileUtils.cp(src, File.join(assets_dir, dest))
+        end
+
+        copy_asset.call(splash, "splash.png")
+        copy_asset.call(splash_dark, "splash_dark.png")
+        copy_asset.call(icon, "icon.png")
+        copy_asset.call(icon_android, "icon_android.png")
+        copy_asset.call(icon_ios, "icon_ios.png")
+        copy_asset.call(icon_web, "icon_web.png")
+        if icon_windows
+          ext = File.extname(icon_windows).downcase
+          copy_asset.call(icon_windows, ext == ".ico" ? "icon_windows.ico" : "icon_windows.png")
+        end
+        copy_asset.call(icon_macos, "icon_macos.png")
+
+        default_splash = File.file?(File.join(assets_dir, "splash.png"))
+        default_icon = File.file?(File.join(assets_dir, "icon.png"))
+
+        using_default_splash = false
+        using_default_icon = false
+
+        if splash_defined && splash.nil?
+          if default_splash
+            using_default_splash = true
+            build_note("Configured splash_screen was not found; using default template asset assets/splash.png")
+          else
+            return { has_icon: false, has_splash: false, error: "build config error: splash_screen is set but file was not found, and no default splash asset exists" }
+          end
+        end
+        if icon_defined && icon.nil?
+          if default_icon
+            using_default_icon = true
+            build_note("Configured icon_launcher was not found; using default template asset assets/icon.png")
+          else
+            return { has_icon: false, has_splash: false, error: "build config error: icon_launcher is set but file was not found, and no default icon asset exists" }
+          end
+        end
+
+        has_splash = !splash.nil? || default_splash
+        has_icon = !icon.nil? || default_icon
+
+        pubspec_path = File.join(client_dir, "pubspec.yaml")
+        unless File.file?(pubspec_path)
+          return { has_icon: has_icon, has_splash: has_splash, error: nil }
+        end
+
+        if has_icon
+          update_pubspec_value(pubspec_path, "flutter_launcher_icons", "image_path", "\"assets/icon.png\"", multiple: true)
+        end
+        update_pubspec_value(pubspec_path, "flutter_launcher_icons", "image_path_android", "\"assets/icon_android.png\"", multiple: true) if icon_android
+        update_pubspec_value(pubspec_path, "flutter_launcher_icons", "image_path_ios", "\"assets/icon_ios.png\"", multiple: true) if icon_ios
+        update_pubspec_value(pubspec_path, "flutter_launcher_icons", "image_path_web", "\"assets/icon_web.png\"", multiple: true) if icon_web
+        if icon_windows
+          ext = File.extname(icon_windows).downcase
+          value = ext == ".ico" ? "\"assets/icon_windows.ico\"" : "\"assets/icon_windows.png\""
+          update_pubspec_value(pubspec_path, "flutter_launcher_icons", "image_path_windows", value, multiple: true)
+        end
+        update_pubspec_value(pubspec_path, "flutter_launcher_icons", "image_path_macos", "\"assets/icon_macos.png\"", multiple: true) if icon_macos
+        update_pubspec_value(pubspec_path, "flutter_launcher_icons", "background_color", "\"#{icon_background}\"") if icon_background
+        update_pubspec_value(pubspec_path, "flutter_launcher_icons", "theme_color", "\"#{theme_color}\"") if theme_color
+
+        update_pubspec_value(pubspec_path, "flutter_native_splash", "image", "\"assets/splash.png\"") if has_splash
+        update_pubspec_value(pubspec_path, "flutter_native_splash", "image_dark", "\"assets/splash_dark.png\"") if splash_dark
+        update_pubspec_value(pubspec_path, "flutter_native_splash", "color", "\"#{splash_color}\"") if splash_color
+        update_pubspec_value(pubspec_path, "flutter_native_splash", "color_dark", "\"#{splash_dark_color}\"") if splash_dark_color
+
+        {
+          has_icon: has_icon,
+          has_splash: has_splash,
+          using_default_icon: using_default_icon,
+          using_default_splash: using_default_splash,
+          error: nil
+        }
+      end
+
+      def sync_client_metadata(client_dir, config = {}, verbose: false)
+        metadata = build_client_metadata(config, client_dir)
+        apply_pubspec_metadata(client_dir, metadata)
+        apply_android_metadata(client_dir, metadata)
+        apply_ios_metadata(client_dir, metadata)
+        apply_macos_metadata(client_dir, metadata)
+        apply_web_metadata(client_dir, metadata)
+        apply_windows_metadata(client_dir, metadata)
+        apply_linux_metadata(client_dir, metadata)
+        apply_dart_metadata(client_dir, metadata)
+        build_log(
+          verbose,
+          "app=#{metadata[:display_name]} package=#{metadata[:package_name]} org=#{metadata[:organization]} bundle=#{metadata[:bundle_identifier]}"
+        )
+      end
+
+      def build_client_metadata(config, client_dir)
+        app = config["app"].is_a?(Hash) ? config["app"] : {}
+        current_pubspec = load_client_pubspec(client_dir)
+        current_name = current_pubspec["name"].to_s
+        inferred_display_name = app["name"] || config["name"] || humanize_name(File.basename(Dir.pwd))
+        package_name = normalize_package_name(app["package_name"] || config["package_name"] || current_name || inferred_display_name)
+        display_name = first_present(app["display_name"], app["name"], config["display_name"], config["name"], humanize_name(package_name))
+        organization = normalize_bundle_prefix(
+          first_present(app["org"], app["organization"], config["org"], config["organization"], "com.example")
+        )
+        bundle_identifier = normalize_bundle_identifier(
+          first_present(app["bundle_identifier"], config["bundle_identifier"], "#{organization}.#{package_name}")
+        )
+
+        {
+          package_name: package_name,
+          display_name: display_name,
+          description: first_present(app["description"], config["description"], current_pubspec["description"], "A new Flutter project."),
+          version: first_present(app["version"], config["version"], current_pubspec["version"], "1.0.0+1"),
+          organization: organization,
+          company_name: first_present(app["company_name"], config["company_name"], organization),
+          bundle_identifier: bundle_identifier,
+          android_application_id: normalize_bundle_identifier(
+            first_present(app["android_application_id"], config["android_application_id"], bundle_identifier)
+          ),
+          ios_bundle_identifier: normalize_bundle_identifier(
+            first_present(app["ios_bundle_identifier"], config["ios_bundle_identifier"], bundle_identifier)
+          ),
+          macos_bundle_identifier: normalize_bundle_identifier(
+            first_present(app["macos_bundle_identifier"], config["macos_bundle_identifier"], bundle_identifier)
+          ),
+          linux_application_id: normalize_bundle_identifier(
+            first_present(app["linux_application_id"], config["linux_application_id"], bundle_identifier)
+          ),
+          short_name: first_present(app["short_name"], config["short_name"], display_name)
+        }
+      end
+
+      def load_client_pubspec(client_dir)
+        pubspec_path = File.join(client_dir, "pubspec.yaml")
+        return {} unless File.file?(pubspec_path)
+
+        YAML.safe_load(File.read(pubspec_path), aliases: true) || {}
+      rescue StandardError
+        {}
+      end
+
+      def apply_pubspec_metadata(client_dir, metadata)
+        pubspec_path = File.join(client_dir, "pubspec.yaml")
+        return unless File.file?(pubspec_path)
+
+        data = YAML.safe_load(File.read(pubspec_path), aliases: true) || {}
+        data["name"] = metadata[:package_name]
+        data["description"] = metadata[:description]
+        data["version"] = metadata[:version]
+        write_pubspec_yaml(pubspec_path, data)
+      end
+
+      def apply_android_metadata(client_dir, metadata)
+        gradle_path = File.join(client_dir, "android", "app", "build.gradle.kts")
+        replace_in_file(
+          gradle_path,
+          /^\s*namespace = ".*"$/,
+          %(    namespace = "#{metadata[:android_application_id]}")
+        )
+        replace_in_file(
+          gradle_path,
+          /^\s*applicationId = ".*"$/,
+          %(        applicationId = "#{metadata[:android_application_id]}")
+        )
+
+        manifest_path = File.join(client_dir, "android", "app", "src", "main", "AndroidManifest.xml")
+        replace_in_file(
+          manifest_path,
+          /android:label="[^"]*"/,
+          %(android:label="#{xml_escape(metadata[:display_name])}")
+        )
+      end
+
+      def apply_ios_metadata(client_dir, metadata)
+        info_plist_path = File.join(client_dir, "ios", "Runner", "Info.plist")
+        replace_plist_value(info_plist_path, "CFBundleDisplayName", metadata[:display_name])
+        replace_plist_value(info_plist_path, "CFBundleName", metadata[:display_name])
+
+        pbxproj_path = File.join(client_dir, "ios", "Runner.xcodeproj", "project.pbxproj")
+        return unless File.file?(pbxproj_path)
+
+        content = File.read(pbxproj_path)
+        content.gsub!(/INFOPLIST_KEY_CFBundleDisplayName = "[^"]*";/, %(INFOPLIST_KEY_CFBundleDisplayName = "#{xcode_escape(metadata[:display_name])}";))
+        content.gsub!(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/) do |match|
+          identifier = Regexp.last_match(1).to_s.strip
+          if identifier.include?("RunnerTests")
+            match
+          else
+            "PRODUCT_BUNDLE_IDENTIFIER = #{metadata[:ios_bundle_identifier]};"
+          end
+        end
+        File.write(pbxproj_path, content)
+      end
+
+      def apply_macos_metadata(client_dir, metadata)
+        app_info_path = File.join(client_dir, "macos", "Runner", "Configs", "AppInfo.xcconfig")
+        replace_in_file(
+          app_info_path,
+          /^PRODUCT_NAME = .*$/,
+          "PRODUCT_NAME = #{metadata[:display_name]}"
+        )
+        replace_in_file(
+          app_info_path,
+          /^PRODUCT_BUNDLE_IDENTIFIER = .*$/,
+          "PRODUCT_BUNDLE_IDENTIFIER = #{metadata[:macos_bundle_identifier]}"
+        )
+        replace_in_file(
+          app_info_path,
+          /^PRODUCT_COPYRIGHT = .*$/,
+          "PRODUCT_COPYRIGHT = Copyright © #{Time.now.year} #{metadata[:company_name]}. All rights reserved."
+        )
+      end
+
+      def apply_web_metadata(client_dir, metadata)
+        manifest_path = File.join(client_dir, "web", "manifest.json")
+        if File.file?(manifest_path)
+          data = JSON.parse(File.read(manifest_path))
+          data["name"] = metadata[:display_name]
+          data["short_name"] = metadata[:short_name]
+          data["description"] = metadata[:description]
+          File.write(manifest_path, JSON.pretty_generate(data) + "\n")
+        end
+
+        index_path = File.join(client_dir, "web", "index.html")
+        replace_in_file(
+          index_path,
+          /<meta name="description" content="[^"]*">/,
+          %(<meta name="description" content="#{html_escape(metadata[:description])}">)
+        )
+        replace_in_file(
+          index_path,
+          /<meta name="apple-mobile-web-app-title" content="[^"]*">/,
+          %(<meta name="apple-mobile-web-app-title" content="#{html_escape(metadata[:short_name])}">)
+        )
+        replace_in_file(
+          index_path,
+          /<title>.*<\/title>/,
+          "<title>#{html_escape(metadata[:display_name])}</title>"
+        )
+      end
+
+      def apply_windows_metadata(client_dir, metadata)
+        cmake_path = File.join(client_dir, "windows", "CMakeLists.txt")
+        replace_in_file(cmake_path, /^project\(.*\)$/, "project(#{metadata[:package_name]} LANGUAGES CXX)")
+        replace_in_file(cmake_path, /^set\(BINARY_NAME ".*"\)$/, %(set(BINARY_NAME "#{metadata[:package_name]}")))
+
+        runner_rc_path = File.join(client_dir, "windows", "runner", "Runner.rc")
+        replace_in_file(
+          runner_rc_path,
+          /VALUE "CompanyName", ".*" "\\0"/,
+          %(VALUE "CompanyName", "#{windows_string_escape(metadata[:company_name])}" "\\0")
+        )
+        replace_in_file(
+          runner_rc_path,
+          /VALUE "FileDescription", ".*" "\\0"/,
+          %(VALUE "FileDescription", "#{windows_string_escape(metadata[:display_name])}" "\\0")
+        )
+        replace_in_file(
+          runner_rc_path,
+          /VALUE "InternalName", ".*" "\\0"/,
+          %(VALUE "InternalName", "#{windows_string_escape(metadata[:package_name])}" "\\0")
+        )
+        replace_in_file(
+          runner_rc_path,
+          /VALUE "LegalCopyright", ".*" "\\0"/,
+          %(VALUE "LegalCopyright", "Copyright (C) #{Time.now.year} #{windows_string_escape(metadata[:company_name])}. All rights reserved." "\\0")
+        )
+        replace_in_file(
+          runner_rc_path,
+          /VALUE "OriginalFilename", ".*" "\\0"/,
+          %(VALUE "OriginalFilename", "#{windows_string_escape(metadata[:package_name])}.exe" "\\0")
+        )
+        replace_in_file(
+          runner_rc_path,
+          /VALUE "ProductName", ".*" "\\0"/,
+          %(VALUE "ProductName", "#{windows_string_escape(metadata[:display_name])}" "\\0")
+        )
+      end
+
+      def apply_linux_metadata(client_dir, metadata)
+        cmake_path = File.join(client_dir, "linux", "CMakeLists.txt")
+        replace_in_file(cmake_path, /^set\(BINARY_NAME ".*"\)$/, %(set(BINARY_NAME "#{metadata[:package_name]}")))
+        replace_in_file(cmake_path, /^set\(APPLICATION_ID ".*"\)$/, %(set(APPLICATION_ID "#{metadata[:linux_application_id]}")))
+
+        # The GTK runner hardcodes the window title (header-bar and fallback
+        # paths). Without this it shows the package name (e.g. "ruflet_client")
+        # instead of the configured app name. Match the call, not the literal,
+        # so re-runs stay idempotent.
+        my_application_path = File.join(client_dir, "linux", "runner", "my_application.cc")
+        title = c_string_escape(metadata[:display_name])
+        replace_in_file(
+          my_application_path,
+          /gtk_header_bar_set_title\(header_bar, "[^"]*"\)/,
+          %(gtk_header_bar_set_title(header_bar, "#{title}"))
+        )
+        replace_in_file(
+          my_application_path,
+          /gtk_window_set_title\(window, "[^"]*"\)/,
+          %(gtk_window_set_title(window, "#{title}"))
+        )
+      end
+
+      def apply_dart_metadata(client_dir, metadata)
+        title = dart_single_quote_escape(metadata[:display_name])
+        client_entrypoint_paths(client_dir).each do |entrypoint|
+          replace_in_file(entrypoint, /title: 'Ruflet'/, "title: '#{title}'")
+          replace_in_file(entrypoint, /AppBar\(title: const Text\('Ruflet'\)\)/, "AppBar(title: const Text('#{title}'))")
+        end
+      end
+
+      def replace_plist_value(path, key, value)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        pattern = %r{(<key>#{Regexp.escape(key)}</key>\s*<string>)(.*?)(</string>)}m
+        updated = content.gsub(pattern) do
+          "#{Regexp.last_match(1)}#{xml_escape(value)}#{Regexp.last_match(3)}"
+        end
+        File.write(path, updated) unless updated == content
+      end
+
+      def replace_in_file(path, pattern, replacement)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        updated = content.gsub(pattern) { replacement }
+        File.write(path, updated) unless updated == content
+      end
+
+      def first_present(*values)
+        values.find { |value| !value.to_s.strip.empty? }
+      end
+
+      def normalize_package_name(value)
+        normalized = value.to_s.strip.downcase.gsub(/[^a-z0-9_]+/, "_")
+        normalized.gsub!(/\A_+|_+\z/, "")
+        normalized.gsub!(/_+/, "_")
+        normalized = "ruflet_client" if normalized.empty?
+        normalized = "app_#{normalized}" if normalized.match?(/\A\d/)
+        normalized
+      end
+
+      def normalize_bundle_prefix(value)
+        segments = value.to_s.strip.downcase.split(".").map do |segment|
+          normalized = segment.gsub(/[^a-z0-9_]+/, "")
+          normalized = "app" if normalized.empty?
+          normalized = "app#{normalized}" if normalized.match?(/\A\d/)
+          normalized
+        end
+        segments.reject!(&:empty?)
+        segments = %w[com example] if segments.empty?
+        segments.join(".")
+      end
+
+      def normalize_bundle_identifier(value)
+        segments = value.to_s.strip.downcase.split(".").map do |segment|
+          normalized = segment.gsub(/[^a-z0-9_]+/, "_")
+          normalized.gsub!(/\A_+|_+\z/, "")
+          normalized = "app" if normalized.empty?
+          normalized = "app#{normalized}" if normalized.match?(/\A\d/)
+          normalized
+        end
+        segments.reject!(&:empty?)
+        segments = %w[com example ruflet_client] if segments.empty?
+        segments.join(".")
+      end
+
+      def humanize_name(name)
+        name.to_s.gsub(/[_-]+/, " ").split.map(&:capitalize).join(" ")
+      end
+
+      def xml_escape(value)
+        value.to_s
+             .gsub("&", "&amp;")
+             .gsub("<", "&lt;")
+             .gsub(">", "&gt;")
+             .gsub('"', "&quot;")
+             .gsub("'", "&apos;")
+      end
+
+      def html_escape(value)
+        xml_escape(value)
+      end
+
+      def xcode_escape(value)
+        value.to_s.gsub("\\", "\\\\\\").gsub('"', '\"')
+      end
+
+      def windows_string_escape(value)
+        value.to_s.gsub('"', '""')
+      end
+
+      # Escape a value for embedding inside a C string literal (used for the
+      # GTK runner window title in my_application.cc). Block form avoids
+      # backslash interpretation in the gsub replacement string.
+      def c_string_escape(value)
+        value.to_s.gsub(/[\\"]/) { |ch| "\\#{ch}" }
+      end
+
+      def dart_single_quote_escape(value)
+        value.to_s.gsub("\\", "\\\\\\").gsub("'", "\\\\'")
+      end
+
+      def key_defined?(hash, key)
+        hash.is_a?(Hash) && (hash.key?(key) || hash.key?(key.to_sym))
+      end
+
+      def apply_service_extension_config(client_dir, config = {}, self_contained: @ruflet_self_contained_build)
+        service_definitions = load_service_definitions(client_dir)
+        service_extension_keys = service_definitions.keys.flat_map { |key| Array(SERVICE_EXTENSION_MAP[key]) }.uniq
+        protected_extension_keys = SERVICE_EXTENSION_MAP.values.flatten.uniq
+        configured_extension_keys = Array(config["extensions"]).map { |value| normalize_extension_key(value) }.compact
+        extension_keys = ((configured_extension_keys - protected_extension_keys) | service_extension_keys).uniq
+        extension_packages = extension_keys.filter_map { |key| CLIENT_EXTENSION_MAP[key]&.fetch(:package) }.uniq
+        extension_aliases = extension_keys.filter_map { |key| CLIENT_EXTENSION_MAP[key]&.fetch(:alias) }.uniq
+
+        sync_client_flet_packages(client_dir, extension_packages)
+        pubspec_path = File.join(client_dir, "pubspec.yaml")
+        if File.file?(pubspec_path)
+          sync_client_extension_dependencies(pubspec_path, extension_packages)
+          prune_client_pubspec(pubspec_path, extension_packages)
+        end
+        client_entrypoint_paths(client_dir).each do |entrypoint|
+          sync_client_main_extensions(entrypoint, extension_aliases) if File.file?(entrypoint)
+          prune_client_main(entrypoint, extension_aliases) if File.file?(entrypoint)
+        end
+        apply_service_native_requirements(client_dir, service_definitions.keys, service_definitions)
+      end
+
+      def apply_service_native_requirements(client_dir, extension_keys, service_definitions = load_service_definitions(client_dir))
+        service_requirements = service_native_requirements(service_definitions)
+        stale_keys = service_requirements.keys - extension_keys
+        remove_service_native_requirements(client_dir, stale_keys, service_requirements)
+
+        requirements = merge_service_native_requirements(extension_keys, service_requirements)
+        sync_ios_permission_definitions(
+          File.join(client_dir, "ios", "Podfile"),
+          Array(requirements[:ios_permission_definitions])
+        )
+        return if requirements.empty?
+
+        android_manifest = File.join(client_dir, "android", "app", "src", "main", "AndroidManifest.xml")
+        Array(requirements[:android_permissions]).each do |permission|
+          ensure_android_permission(android_manifest, permission)
+        end
+
+        ios_info = File.join(client_dir, "ios", "Runner", "Info.plist")
+        Hash(requirements[:ios_info]).each do |key, value|
+          ensure_plist_string(ios_info, key, value)
+        end
+
+        macos_info = File.join(client_dir, "macos", "Runner", "Info.plist")
+        Hash(requirements[:macos_info]).each do |key, value|
+          ensure_plist_string(macos_info, key, value)
+        end
+
+        %w[DebugProfile Release].each do |name|
+          entitlements_path = File.join(client_dir, "macos", "Runner", "#{name}.entitlements")
+          Hash(requirements[:macos_entitlements]).each do |key, value|
+            ensure_plist_boolean(entitlements_path, key, value)
+          end
+        end
+      end
+
+      def remove_service_native_requirements(client_dir, extension_keys, service_requirements = service_native_requirements(load_service_definitions(client_dir)))
+        requirements = merge_service_native_requirements(extension_keys, service_requirements)
+        return if requirements.empty?
+
+        android_manifest = File.join(client_dir, "android", "app", "src", "main", "AndroidManifest.xml")
+        Array(requirements[:android_permissions]).each do |permission|
+          remove_android_permission(android_manifest, permission)
+        end
+
+        [File.join(client_dir, "ios", "Runner", "Info.plist"), File.join(client_dir, "macos", "Runner", "Info.plist")].each do |path|
+          (Hash(requirements[:ios_info]).keys + Hash(requirements[:macos_info]).keys).uniq.each do |key|
+            remove_plist_entry(path, key)
+          end
+        end
+
+        %w[DebugProfile Release].each do |name|
+          entitlements_path = File.join(client_dir, "macos", "Runner", "#{name}.entitlements")
+          Hash(requirements[:macos_entitlements]).each_key do |key|
+            remove_plist_entry(entitlements_path, key)
+          end
+        end
+      end
+
+      def merge_service_native_requirements(extension_keys, service_requirements = DEFAULT_SERVICE_NATIVE_REQUIREMENTS)
+        extension_keys.each_with_object({}) do |key, memo|
+          requirements = service_requirements[key]
+          next unless requirements
+
+          memo[:android_permissions] ||= []
+          memo[:android_permissions] |= Array(requirements[:android_permissions])
+          memo[:ios_permission_definitions] ||= []
+          memo[:ios_permission_definitions] |= Array(requirements[:ios_permission_definitions])
+          %i[ios_info macos_info macos_entitlements].each do |section|
+            memo[section] ||= {}
+            memo[section].merge!(requirements[section] || {})
+          end
+        end
+      end
+
+      def load_service_definitions(client_dir = nil)
+        path = services_config_path(client_dir)
+        return {} unless path
+
+        data = YAML.safe_load(File.read(path), aliases: true) || {}
+        Array(data["services"]).each_with_object({}) do |entry, memo|
+          name, metadata =
+            if entry.is_a?(Hash)
+              entry.first
+            else
+              [entry, {}]
+            end
+          key = normalize_extension_key(name)
+          memo[key] = metadata.is_a?(Hash) ? metadata : {} if key
+        end
+      rescue Psych::Exception => e
+        warn "Could not parse #{path}: #{e.message}"
+        {}
+      end
+
+      def services_config_path(client_dir = nil)
+        candidates = [ENV["RUFLET_SERVICES"], File.expand_path("services.yaml", Dir.pwd)]
+        candidates << File.join(client_dir, "services.yaml") if client_dir
+        candidates.compact.find { |path| File.file?(path) }
+      end
+
+      def service_native_requirements(service_definitions)
+        all_keys = (DEFAULT_SERVICE_NATIVE_REQUIREMENTS.keys | service_definitions.keys)
+        all_keys.each_with_object({}) do |key, memo|
+          defaults = DEFAULT_SERVICE_NATIVE_REQUIREMENTS[key] || {}
+          metadata = service_definitions[key] || {}
+          native = metadata["native"].is_a?(Hash) ? metadata["native"] : metadata
+          memo[key] = {
+            android_permissions: Array(native["android_permissions"] || defaults[:android_permissions]),
+            ios_permission_definitions: Array(native["ios_permission_definitions"] || defaults[:ios_permission_definitions]),
+            ios_info: native["ios_info"].is_a?(Hash) ? native["ios_info"] : (defaults[:ios_info] || {}),
+            macos_info: native["macos_info"].is_a?(Hash) ? native["macos_info"] : (defaults[:macos_info] || {}),
+            macos_entitlements: native["macos_entitlements"].is_a?(Hash) ? native["macos_entitlements"] : (defaults[:macos_entitlements] || {})
+          }
+        end
+      end
+
+      def sync_ios_permission_definitions(path, definitions)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        marker_pattern = %r{\n?\s*# BEGIN RUFLET PERMISSION DEFINITIONS.*?# END RUFLET PERMISSION DEFINITIONS\n?}m
+        updated = content.gsub(marker_pattern, "\n")
+        definitions = Array(definitions).map(&:to_s).reject(&:empty?).uniq.sort
+        if definitions.any?
+          block = <<~RUBY.chomp
+                # BEGIN RUFLET PERMISSION DEFINITIONS
+                target.build_configurations.each do |config|
+                  config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+                  config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] += #{definitions.inspect}
+                end
+                # END RUFLET PERMISSION DEFINITIONS
+          RUBY
+          updated = updated.sub(
+            /^(\s*)flutter_additional_ios_build_settings\(target\)\s*$/,
+            "\\0\n\n#{block}"
+          )
+        end
+        File.write(path, updated) unless updated == content
+      end
+
+      def ensure_android_permission(path, permission)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        return if content.include?(permission)
+
+        permission_line = %(    <uses-permission android:name="#{xml_escape(permission)}"/>\n)
+        updated = content.sub(/(<manifest\b[^>]*>\s*)/m) { "#{Regexp.last_match(1)}#{permission_line}" }
+        File.write(path, updated == content ? "#{permission_line}#{content}" : updated)
+      end
+
+      def remove_android_permission(path, permission)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        updated = content.gsub(%r{^\s*<uses-permission\s+android:name="#{Regexp.escape(permission)}"\s*/>\s*\n?}, "")
+        File.write(path, updated) unless updated == content
+      end
+
+      def ensure_plist_string(path, key, value)
+        ensure_plist_entry(path, key, "<string>#{xml_escape(value)}</string>")
+      end
+
+      def ensure_plist_boolean(path, key, value)
+        ensure_plist_entry(path, key, value ? "<true/>" : "<false/>")
+      end
+
+      def ensure_plist_entry(path, key, value_xml)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        return if content.include?("<key>#{key}</key>")
+
+        entry = "\t<key>#{key}</key>\n\t#{value_xml}\n"
+
+        # Insert into the ROOT <dict> (opened right after <plist ...>), never the
+        # first nested </dict>. Modern Flutter Info.plists nest a dict inside
+        # UIApplicationSceneManifest, so subbing the first </dict> would bury
+        # top-level keys (e.g. NS*UsageDescription) where iOS can't read them —
+        # which crashes the app the moment a permission is requested.
+        root_open = content.match(%r{<plist\b[^>]*>\s*<dict>}m)
+        updated =
+          if root_open
+            insert_at = root_open.end(0)
+            content[0...insert_at] + "\n#{entry}" + content[insert_at..]
+          elsif (last = content.rindex("</dict>"))
+            content[0...last] + entry + content[last..]
+          else
+            "#{content}\n#{entry}"
+          end
+        File.write(path, updated)
+      end
+
+      def remove_plist_entry(path, key)
+        return unless File.file?(path)
+
+        content = File.read(path)
+        updated = content.gsub(%r{\s*<key>#{Regexp.escape(key)}</key>\s*<(?:string>.*?</string|true/|false/)>\s*}m, "\n")
+        File.write(path, updated) unless updated == content
+      end
+
+      def clear_flutter_build_state(client_dir, verbose: false)
+        flutter_build_dir = File.join(client_dir, ".dart_tool", "flutter_build")
+        return unless Dir.exist?(flutter_build_dir)
+
+        FileUtils.rm_rf(flutter_build_dir)
+        build_log(verbose, "cleared .dart_tool/flutter_build")
+      end
+
+      def clear_stale_platform_outputs(client_dir, platform, verbose: false)
+        return unless platform == "ios"
+
+        stale_paths = %w[
+          build/ios/Debug-iphonesimulator
+          build/ios/iphonesimulator
+        ]
+
+        stale_paths.each do |relative_path|
+          path = File.join(client_dir, relative_path)
+          next unless Dir.exist?(path)
+
+          FileUtils.rm_rf(path)
+          build_log(verbose, "cleared stale #{relative_path}")
+        end
+      end
+
+      def client_entrypoint_paths(client_dir)
+        %w[main.dart main.self.dart main.server.dart].map do |name|
+          File.join(client_dir, "lib", name)
+        end
+      end
+
+      def configure_client_runtime_mode(client_dir, self_contained:, verbose: false)
+        build_log(verbose, "configuring #{self_contained ? 'self-contained' : 'server-driven'} runtime")
+        sync_client_pubspec_for_runtime_mode(client_dir, self_contained: self_contained)
+        if self_contained
+          sync_self_contained_project_assets(client_dir, verbose: verbose)
+          remove_local_ruby_runtime_override(client_dir, verbose: verbose)
+        else
+          remove_self_contained_project_assets(client_dir, verbose: verbose)
+          remove_local_ruby_runtime_override(client_dir, verbose: verbose)
+        end
+      end
+
+      def sync_client_pubspec_for_runtime_mode(client_dir, self_contained:)
+        pubspec_path = File.join(client_dir, "pubspec.yaml")
+        return unless File.file?(pubspec_path)
+
+        data = YAML.safe_load(File.read(pubspec_path), aliases: true) || {}
+        dependencies = data["dependencies"]
+        dependencies = data["dependencies"] = {} unless dependencies.is_a?(Hash)
+        flutter = data["flutter"]
+        flutter = data["flutter"] = {} unless flutter.is_a?(Hash)
+        assets = Array(flutter["assets"]).map(&:to_s)
+        project_asset_prefix = "assets/#{self_contained_project_name}/"
+        assets.reject! { |asset| asset.start_with?(project_asset_prefix) }
+
+        if self_contained
+          dependencies["ruby_runtime"] = ruby_runtime_dependency(dependencies["ruby_runtime"])
+          assets.delete("assets/main.rb")
+          assets.delete("assets/ruby_project/")
+          project_asset_relative_paths.each do |relative_path|
+            assets << "#{project_asset_prefix}#{relative_path}"
+          end
+        else
+          dependencies.delete("ruby_runtime")
+          assets.delete("assets/main.rb")
+          assets.delete("assets/ruby_project/")
+        end
+
+        flutter["assets"] = assets unless assets.empty?
+        flutter.delete("assets") if assets.empty?
+        write_pubspec_yaml(pubspec_path, data)
+      end
+
+      RUBY_RUNTIME_FALLBACK_REQUIREMENT = "^0.0.6"
+
+      def ruby_runtime_dependency(current_dependency = nil)
+        local_path = explicit_local_ruby_runtime_path || repo_checkout_ruby_runtime_path
+        return { "path" => local_path } if local_path
+
+        template_dependency = template_client_pubspec_dependencies["ruby_runtime"]
+        return template_dependency if usable_ruby_runtime_dependency?(template_dependency)
+
+        return current_dependency if usable_ruby_runtime_dependency?(current_dependency)
+
+        RUBY_RUNTIME_FALLBACK_REQUIREMENT
+      end
+
+      # In a ruflet repo checkout the plugin lives next to templates/; build
+      # against it so framework changes are exercised without publishing.
+      def repo_checkout_ruby_runtime_path
+        template_root =
+          if Ruflet::CLI.respond_to?(:resolve_ruflet_client_template_root, true)
+            Ruflet::CLI.send(:resolve_ruflet_client_template_root)
+          end
+        return nil unless template_root
+
+        candidate = File.expand_path(File.join(template_root, "..", "..", "ruby_runtime"))
+        File.file?(File.join(candidate, "pubspec.yaml")) ? candidate : nil
+      end
+
+      # Relative path dependencies only resolve from the directory the
+      # template was authored in — never copy them into a user's client.
+      def usable_ruby_runtime_dependency?(dependency)
+        case dependency
+        when nil then false
+        when Hash
+          path = dependency["path"] || dependency[:path]
+          return true if path.nil? # hosted/git table form
+
+          Pathname.new(path.to_s).absolute? && File.file?(File.join(path, "pubspec.yaml"))
+        else
+          !dependency.to_s.strip.empty?
+        end
+      end
+
+      def explicit_local_ruby_runtime_path
+        env_path = ENV["RUFLET_RUBY_RUNTIME_PATH"].to_s.strip
+        return nil if env_path.empty?
+
+        candidate = Pathname.new(env_path).expand_path
+        return candidate.to_s if candidate.join("pubspec.yaml").file?
+
+        nil
+      end
+
+      def refresh_managed_client_template_files(client_dir, verbose: false)
+        template_root =
+          if Ruflet::CLI.respond_to?(:resolve_ruflet_client_template_root, true)
+            Ruflet::CLI.send(:resolve_ruflet_client_template_root)
+          end
+        return unless template_root && Dir.exist?(template_root)
+
+        managed_files = [
+          "lib/main.dart",
+          "lib/main.self.dart",
+          "lib/main.server.dart",
+          "lib/connection_probe.dart",
+          "lib/connection_probe_io.dart",
+          "lib/connection_probe_stub.dart",
+          "lib/ruflet_file_picker_service.dart",
+          "macos/Runner/DebugProfile.entitlements",
+          "macos/Runner/Release.entitlements"
+        ]
+
+        managed_files.each do |relative_path|
+          source = File.join(template_root, relative_path)
+          next unless File.file?(source)
+
+          destination = File.join(client_dir, relative_path)
+          FileUtils.mkdir_p(File.dirname(destination))
+          FileUtils.cp(source, destination)
+          build_log(verbose, "refreshed template file #{relative_path}")
+        end
+
+        repair_legacy_self_contained_bootstrap(client_dir, verbose: verbose)
+      end
+
+      def repair_legacy_self_contained_bootstrap(client_dir, verbose: false)
+        path = File.join(client_dir, "lib", "main.self.dart")
+        return unless File.file?(path)
+
+        content = File.read(path)
+        updated = content.gsub(
+          /^\s*await RubyRuntime\.eval\("ENV\['RUFLET_DEBUG'\].*?\n/,
+          ""
+        )
+        updated = updated.gsub(
+          /^\s*final digestLength = await RubyRuntime\.eval\(\n.*?^\s*\);\n\s*debugPrint\('Embedded Digest::SHA1 bytesize: \$digestLength'\);\n/m,
+          ""
+        )
+        return if updated == content
+
+        File.write(path, updated)
+        build_log(verbose, "removed legacy pre-server RubyRuntime.eval diagnostics")
+      end
+
+      def write_pubspec_yaml(path, data)
+        content = YAML.dump(data)
+        content = content.sub(/\A---\n/, "")
+
+        content = indent_pubspec_sequences(content)
+
+        File.write(path, content)
+      end
+
+      def indent_pubspec_sequences(content)
+        current_key_indent = nil
+        content.lines.map do |line|
+          if (match = line.match(/\A(\s*)[^#\s][^:]*:\s*(?:#.*)?\n?\z/))
+            current_key_indent = match[1].length
+          elsif (match = line.match(/\A(\s*)-\s/)) && current_key_indent && match[1].length <= current_key_indent
+            line = (" " * (current_key_indent + 2)) + line.lstrip
+          end
+
+          line
+        end.join
+      end
+
+      def sync_self_contained_project_assets(client_dir, verbose: false)
+        project_root = Pathname.new(Dir.pwd)
+        assets_root = File.join(client_dir, "assets")
+        destination_root = File.join(assets_root, self_contained_project_name)
+        FileUtils.rm_rf(destination_root)
+        FileUtils.rm_rf(File.join(assets_root, "ruby_project"))
+        FileUtils.mkdir_p(destination_root)
+
+        legacy_entrypoint = File.join(client_dir, "assets", "main.rb")
+        FileUtils.rm_f(legacy_entrypoint)
+
+        copied = 0
+        project_asset_relative_paths.each do |relative_path|
+          source = project_root.join(relative_path)
+          next unless source.exist? && source.file?
+
+          destination = File.join(destination_root, relative_path)
+          FileUtils.mkdir_p(File.dirname(destination))
+          copy_project_asset_file(source.to_s, destination, project_root: project_root.to_s)
+          copied += 1
+        end
+
+        build_log(verbose, "copied #{copied} project file#{copied == 1 ? '' : 's'} to assets/#{self_contained_project_name}")
+      end
+
+      def copy_project_asset_file(source, destination, project_root: nil)
+        if File.extname(source).downcase == ".rb"
+          ruby_source =
+            if File.basename(source) == "main.rb" && project_root
+              bundled_embedded_ruby_source(source, project_root)
+            else
+              File.read(source)
+            end
+          File.write(destination, normalize_embedded_ruby_source(ruby_source))
+        else
+          FileUtils.cp(source, destination)
+        end
+      end
+
+      def bundled_embedded_ruby_source(source, project_root, visited = {})
+        absolute = File.expand_path(source)
+        return "" if visited[absolute]
+
+        visited[absolute] = true
+        base = File.dirname(absolute)
+        File.read(absolute).lines.map do |line|
+          match = line.match(/^\s*require_relative\s+["']([^"']+)["']\s*$/)
+          next line unless match
+
+          required = File.expand_path(match[1], base)
+          required = "#{required}.rb" unless File.file?(required)
+          next line unless File.file?(required) && required.start_with?(File.expand_path(project_root))
+
+          bundled_embedded_ruby_source(required, project_root, visited)
+        end.join
+      end
+
+      def normalize_embedded_ruby_source(source)
+        source.lines.map do |line|
+          expand_endless_method_line(line)
+        end.join
+      end
+
+      def expand_endless_method_line(line)
+        match = line.match(/^(\s*)def\s+(.+)$/)
+        return line unless match
+
+        indent = match[1]
+        body = match[2].chomp
+        newline = line.end_with?("\n") ? "\n" : ""
+        split = endless_method_split(body)
+        return line unless split
+
+        signature, expression = split
+        "#{indent}def #{signature.rstrip}\n#{indent}  #{expression.lstrip}\n#{indent}end#{newline}"
+      end
+
+      def endless_method_split(body)
+        depth = 0
+        quote = nil
+        escape = false
+
+        body.each_char.with_index do |char, index|
+          if quote
+            escape = char == "\\" && !escape
+            if char == quote && !escape
+              quote = nil
+            elsif char != "\\"
+              escape = false
+            end
+            next
+          end
+
+          case char
+          when "'", '"'
+            quote = char
+          when "(", "[", "{"
+            depth += 1
+          when ")", "]", "}"
+            depth -= 1 if depth.positive?
+          when "="
+            next unless depth.zero? && body[index + 1] == " "
+
+            signature = body[0...index]
+            expression = body[(index + 1)..]
+            return [signature, expression] unless signature.strip.empty? || expression.to_s.strip.empty?
+          end
+        end
+
+        nil
+      end
+
+      def remove_self_contained_project_assets(client_dir, verbose: false)
+        assets_root = File.join(client_dir, "assets")
+        legacy_entrypoint = File.join(client_dir, "assets", "main.rb")
+        FileUtils.rm_f(legacy_entrypoint)
+        removed = false
+
+        project_root = File.join(assets_root, self_contained_project_name)
+        if Dir.exist?(project_root)
+          FileUtils.rm_rf(project_root)
+          removed = true
+        end
+
+        legacy_root = File.join(assets_root, "ruby_project")
+        if Dir.exist?(legacy_root)
+          FileUtils.rm_rf(legacy_root)
+          removed = true
+        end
+
+        build_log(verbose, "removed embedded self-contained project assets") if removed
+      end
+
+      def project_asset_relative_paths
+        root = Pathname.new(Dir.pwd)
+        included = []
+
+        Find.find(root.to_s) do |path|
+          pathname = Pathname.new(path)
+          relative = pathname.relative_path_from(root).to_s
+          next if relative.empty?
+
+          if pathname.directory?
+            if skip_project_asset_directory?(relative)
+              Find.prune
+            else
+              next
+            end
+          end
+
+          next unless include_project_asset_file?(relative)
+
+          included << relative
+        end
+
+        included.sort
+      end
+
+      def self_contained_project_name
+        name = File.basename(Dir.pwd.to_s)
+        name = "app" if name.to_s.strip.empty?
+        name
+      end
+
+      def skip_project_asset_directory?(relative)
+        first = relative.split(File::SEPARATOR).first
+        %w[
+          .git
+          .bundle
+          .dart_tool
+          .idea
+          .ruby-lsp
+          .vscode
+          build
+          coverage
+          log
+          node_modules
+          pkg
+          ruflet_client
+          tmp
+          vendor
+        ].include?(first)
+      end
+
+      def include_project_asset_file?(relative)
+        basename = File.basename(relative)
+        return false if %w[Gemfile.lock pubspec.lock Podfile.lock package-lock.json yarn.lock pnpm-lock.yaml].include?(basename)
+        return true if %w[main.rb Gemfile ruflet.yaml ruflet.yml manifest.json].include?(basename)
+
+        ext = File.extname(relative).downcase
+        return true if %w[.rb .json .yml .yaml].include?(ext)
+
+        first = relative.split(File::SEPARATOR).first
+        return true if first == "assets"
+
+        false
+      end
+
+      def flutter_target_entrypoint(client_dir, self_contained:)
+        candidate = File.join(
+          client_dir,
+          "lib",
+          self_contained ? "main.self.dart" : "main.server.dart"
+        )
+        return nil unless File.file?(candidate)
+
+        File.join("lib", File.basename(candidate))
+      end
+
+      def remove_local_ruby_runtime_override(client_dir, verbose: false)
+        overrides_path = File.join(client_dir, "pubspec_overrides.yaml")
+        return unless File.file?(overrides_path)
+
+        File.delete(overrides_path)
+        build_log(verbose, "removed ruby_runtime override")
+      rescue StandardError => e
+        warn "Failed to remove ruby_runtime override: #{e.class}: #{e.message}"
+      end
+
+      def normalize_extension_key(value)
+        key = value.to_s.strip.downcase
+        return nil if key.empty?
+
+        key.tr!("-", "_")
+        key.gsub!(/\A(flet_)+/, "")
+        key.gsub!(/\Aservice_/, "")
+        key
+      end
+
+      def prune_client_pubspec(path, selected_packages)
+        data = YAML.safe_load(File.read(path), aliases: true) || {}
+        deps = (data["dependencies"] || {}).dup
+
+        deps.keys.each do |name|
+          next unless name.start_with?("flet_")
+          next if name == "flet"
+          next if selected_packages.include?(name)
+
+          deps.delete(name)
+        end
+
+        data["dependencies"] = deps
+        write_pubspec_yaml(path, data)
+      end
+
+      def sync_client_flet_packages(client_dir, selected_packages)
+        template_root =
+          if Ruflet::CLI.respond_to?(:resolve_ruflet_client_template_root, true)
+            Ruflet::CLI.send(:resolve_ruflet_client_template_root)
+          end
+        return unless template_root
+
+        source_root = File.join(template_root, "flet_packages")
+        target_root = File.join(client_dir, "flet_packages")
+        return unless Dir.exist?(source_root)
+        return if File.expand_path(source_root) == File.expand_path(target_root)
+
+        # The repository's standalone client intentionally carries the full
+        # local package catalog. Only generated/template-derived clients are
+        # conditioned for a particular Ruflet application.
+        return if standalone_ruflet_client_source?(client_dir, template_root)
+
+        known_packages = CLIENT_EXTENSION_MAP.values.map { |meta| meta.fetch(:package) }.uniq
+        required_packages = (["flet"] + selected_packages).uniq
+
+        FileUtils.mkdir_p(target_root)
+        required_packages.each do |package_name|
+          source = File.join(source_root, package_name)
+          target = File.join(target_root, package_name)
+          next unless Dir.exist?(source)
+          next if Dir.exist?(target)
+
+          FileUtils.cp_r(source, target)
+        end
+
+        (known_packages - selected_packages).each do |package_name|
+          FileUtils.rm_rf(File.join(target_root, package_name))
+        end
+      end
+
+      def standalone_ruflet_client_source?(client_dir, template_root)
+        client_root = File.expand_path(client_dir)
+        candidates = [
+          File.expand_path("../../ruflet_client", template_root),
+          File.expand_path("../../../../../ruflet_client", __dir__)
+        ]
+        candidates.any? { |candidate| File.expand_path(candidate) == client_root }
+      end
+
+      def sync_client_extension_dependencies(path, selected_packages)
+        return if selected_packages.empty?
+
+        template_deps = template_client_pubspec_dependencies
+        return if template_deps.empty?
+
+        data = YAML.safe_load(File.read(path), aliases: true) || {}
+        deps = (data["dependencies"] || {}).dup
+        if selected_packages.include?("flet_rive")
+          deps.delete("rive")
+          deps.delete("rive_native")
+        end
+        selected_packages.each do |package_name|
+          deps[package_name] = template_deps[package_name] if template_deps.key?(package_name)
+        end
+
+        data["dependencies"] = deps
+        sync_local_flet_dependency_override(data, deps["flet"])
+        write_pubspec_yaml(path, data)
+      end
+
+      # Git-backed Flet extensions declare their own Flet source. When Ruflet
+      # vendors the core engine locally, force every extension to resolve that
+      # same copy instead of letting Pub reject the mixed sources.
+      def sync_local_flet_dependency_override(data, flet_dependency)
+        return unless flet_dependency.is_a?(Hash) && key_defined?(flet_dependency, "path")
+
+        overrides = data["dependency_overrides"]
+        overrides = data["dependency_overrides"] = {} unless overrides.is_a?(Hash)
+        overrides["flet"] = flet_dependency
+      end
+
+      def template_client_pubspec_dependencies
+        template_root =
+          if Ruflet::CLI.respond_to?(:resolve_ruflet_client_template_root, true)
+            Ruflet::CLI.send(:resolve_ruflet_client_template_root)
+          end
+        return {} unless template_root
+
+        pubspec_path = File.join(template_root, "pubspec.yaml")
+        return {} unless File.file?(pubspec_path)
+
+        data = YAML.safe_load(File.read(pubspec_path), aliases: true) || {}
+        deps = data["dependencies"]
+        deps.is_a?(Hash) ? deps : {}
+      rescue StandardError
+        {}
+      end
+
+      def sync_client_main_extensions(path, selected_aliases)
+        return if selected_aliases.empty?
+
+        template_path = template_client_entrypoint_path(File.basename(path))
+        return unless template_path
+
+        content = File.read(path)
+        template = File.read(template_path)
+
+        selected_aliases.each do |extension_alias|
+          import_line = template.lines.find { |line| line.match?(/\sas #{Regexp.escape(extension_alias)};\s*\z/) }
+          extension_line = template.lines.find { |line| line.match?(/^\s*#{Regexp.escape(extension_alias)}\.Extension\(\),\s*$/) }
+
+          content = insert_missing_import(content, import_line) if import_line && !content.include?(import_line)
+          content = insert_missing_extension(content, extension_line) if extension_line && !content.include?(extension_line)
+        end
+
+        File.write(path, content)
+      end
+
+      def template_client_entrypoint_path(name)
+        template_root =
+          if Ruflet::CLI.respond_to?(:resolve_ruflet_client_template_root, true)
+            Ruflet::CLI.send(:resolve_ruflet_client_template_root)
+          end
+        return nil unless template_root
+
+        path = File.join(template_root, "lib", name)
+        File.file?(path) ? path : nil
+      end
+
+      def insert_missing_import(content, import_line)
+        lines = content.lines
+        last_import_index = lines.rindex { |line| line.start_with?("import ") }
+        if last_import_index
+          lines.insert(last_import_index + 1, import_line)
+        else
+          lines.unshift(import_line)
+        end
+        lines.join
+      end
+
+      def insert_missing_extension(content, extension_line)
+        lines = content.lines
+        marker_index = lines.index { |line| line.include?("// --FAT_CLIENT_START--") }
+        if marker_index
+          lines.insert(marker_index, extension_line)
+        else
+          list_index = lines.index { |line| line.include?("final extensions = <FletExtension>[") }
+          lines.insert(list_index ? list_index + 1 : lines.length, extension_line)
+        end
+        lines.join
+      end
+
+      def prune_client_main(path, selected_aliases)
+        content = File.read(path)
+        alias_to_package = {}
+
+        content.scan(%r{^import 'package:(flet_[^/]+)/\1\.dart'\s+as ([a-zA-Z0-9_]+);$}m) do |package_name, import_alias|
+          alias_to_package[import_alias] = package_name
+        end
+
+        content = content.gsub(%r{^import 'package:(flet_[^/]+)/\1\.dart'\s+as ([a-zA-Z0-9_]+);\n}m) do |match|
+          package_name = Regexp.last_match(1)
+          import_alias = Regexp.last_match(2)
+          if package_name == "flet" || selected_aliases.include?(import_alias)
+            match
+          else
+            ""
+          end
+        end
+
+        content = content.gsub(/^(\s*)([a-zA-Z0-9_]+)\.Extension\(\),\s*$/) do |match|
+          extension_alias = Regexp.last_match(2)
+          package_name = alias_to_package[extension_alias]
+          if package_name.nil? || selected_aliases.include?(extension_alias)
+            match
+          else
+            ""
+          end
+        end
+
+        File.write(path, content)
+      end
+
+      def update_pubspec_value(path, block, key, value, multiple: false)
+        lines = File.read(path).split("\n", -1)
+        out = []
+        in_block = false
+        replaced = false
+        block_indent = nil
+        lines.each do |line|
+          if line.start_with?("#{block}:")
+            in_block = true
+            block_indent = line[/^\s*/] + "  "
+            out << line
+            next
+          end
+
+          if in_block
+            if line =~ /^\S/ && !line.start_with?("#{block}:")
+              unless replaced
+                out << "#{block_indent}#{key}: #{value}"
+                replaced = true
+              end
+              in_block = false
+            else
+              if line.strip.start_with?("#{key}:")
+                indent = line[/^\s*/]
+                out << "#{indent}#{key}: #{value}"
+                replaced = true
+                next
+              end
+            end
+          end
+
+          out << line
+        end
+        if in_block && !replaced
+          out << "#{block_indent}#{key}: #{value}"
+        end
+        File.write(path, indent_pubspec_sequences(out.join("\n")))
+      end
+
+      def flutter_build_command(platform)
+        case platform
+        when "apk", "android"
+          ["build", "apk"]
+        when "aab", "appbundle"
+          ["build", "appbundle"]
+        when "ios"
+          ["build", "ios"]
+        when "web"
+          ["build", "web"]
+        when "macos"
+          ["build", "macos"]
+        when "windows"
+          ["build", "windows"]
+        when "linux"
+          ["build", "linux"]
+        else
+          nil
+        end
+      end
+
+      def ios_device_build_needs_codesign_flag?(platform, build_args)
+        return false unless platform == "ios"
+        return false if build_args.include?("--simulator")
+        return false if build_args.include?("--no-codesign")
+        return false if build_args.include?("--codesign")
+
+        true
+      end
+
+      def build_log(verbose, message)
+        return unless verbose
+
+        puts "[ruflet build] #{message}"
+      end
+
+      def build_note(message)
+        puts "[ruflet build] #{message}"
+      end
+
+      def announce_asset_configuration(asset_flags)
+        if asset_flags[:has_splash]
+          if asset_flags[:using_default_splash]
+            build_note("Splash screen will use the default template asset")
+          else
+            build_note("Splash screen is configured")
+          end
+        else
+          build_note("No splash screen configured")
+        end
+
+        if asset_flags[:has_icon]
+          if asset_flags[:using_default_icon]
+            build_note("Launcher icons will use the default template asset")
+          else
+            build_note("Launcher icons are configured")
+          end
+        else
+          build_note("No launcher icons configured")
+        end
+      end
+    end
+  end
+end

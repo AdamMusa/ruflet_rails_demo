@@ -1,0 +1,9 @@
+<%= storage_paths %>
+<%= text "Storage paths ready", id: "storage-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Temporary", service: "storage-temporary", result_target: "storage-status" %>
+  <%= button "Documents", service: "storage-documents", result_target: "storage-status" %>
+  <%= button "Support", service: "storage-support", result_target: "storage-status" %>
+  <%= button "Cache", service: "storage-cache", result_target: "storage-status" %>
+  <%= button "Downloads", service: "storage-downloads", result_target: "storage-status" %>
+<% end %>

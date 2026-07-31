@@ -1,0 +1,10 @@
+<%= shared_preferences %>
+<%= text "Shared preferences ready", id: "preferences-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Set", service: "prefs-set", key: "ruflet_demo", value: "Hello from Ruflet", result_target: "preferences-status" %>
+  <%= button "Get", service: "prefs-get", key: "ruflet_demo", result_target: "preferences-status" %>
+  <%= button "Contains", service: "prefs-contains", key: "ruflet_demo", result_target: "preferences-status" %>
+  <%= button "Keys", service: "prefs-keys", result_target: "preferences-status" %>
+  <%= button "Remove", service: "prefs-remove", key: "ruflet_demo", result_target: "preferences-status" %>
+  <%= button "Clear", service: "prefs-clear", result_target: "preferences-status" %>
+<% end %>
