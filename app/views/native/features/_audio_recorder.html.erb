@@ -3,8 +3,19 @@
 <%= audio_recorder %>
 <%= permission_handler %>
 <%= storage_paths %>
-<%= text "Audio recorder ready", id: "recorder-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-3 items-center" do %>
+  <%= spinkit pulse: { id: "recorder-pulse", visible: "false", color: "#ef4444", size: 34 } %>
+  <%= column class: "gap-1" do %>
+    <%= text "Audio recorder ready", id: "recorder-status", class: "text-sm font-semibold text-slate-700 selectable" %>
+    <%= text "Your recording plays automatically after you stop.", class: "text-xs text-slate-500" %>
+  <% end %>
+<% end %>
 <%= row class: "gap-2 flex-wrap items-center" do %>
-  <%= button "Record", service: "audio-recorder-start", icon: "mic", result_target: "recorder-status" %>
-  <%= button "Stop", service: "audio-recorder-stop", icon: "stop", variant: "outlined", result_target: "recorder-status" %>
+  <%= button "Record", id: "recorder-record", service: "audio-recorder-start", icon: "mic",
+             result_target: "recorder-status", indicator_target: "recorder-pulse",
+             record_target: "recorder-record", stop_target: "recorder-stop" %>
+  <%= button "Stop", id: "recorder-stop", service: "audio-recorder-stop", icon: "stop",
+             variant: "outlined", disabled: true, result_target: "recorder-status",
+             indicator_target: "recorder-pulse", record_target: "recorder-record",
+             stop_target: "recorder-stop" %>
 <% end %>
