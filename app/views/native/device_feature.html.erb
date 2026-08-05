@@ -3,7 +3,11 @@
     top with dead space underneath. %>
 <%= appbar @feature_title %>
 
-<% body_class = @feature == "webview" ? "h-full" : "p-6 gap-4 h-full" %>
+<% body_class = case @feature
+                when "webview" then "h-full"
+                when "spinkit" then "p-6 gap-4 h-full overflow-y-auto"
+                else "p-6 gap-4 h-full"
+                end %>
 <%= column class: body_class do %>
   <%= render partial: "native/features/#{@feature}" %>
 <% end %>
