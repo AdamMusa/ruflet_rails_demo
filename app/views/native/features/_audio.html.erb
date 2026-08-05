@@ -2,7 +2,7 @@
 <%= text "Audio ready", id: "audio-status", class: "text-sm text-slate-500 selectable" %>
 <%= text "Position: 0", id: "audio-position", class: "text-sm text-slate-500 selectable" %>
 <%= row class: "gap-2 flex-wrap" do %>
-  <%= button "Play", service: "control", target: "studio-audio", method: "play", result_target: "audio-status" %>
+  <%= button "Play", service: "control", target: "studio-audio", method: "play", args: { position: 0 }, result_target: "audio-status" %>
   <%= button "Pause", service: "control", target: "studio-audio", method: "pause", result_target: "audio-status" %>
   <%= button "Resume", service: "control", target: "studio-audio", method: "resume", result_target: "audio-status" %>
   <%= button "Release", service: "control", target: "studio-audio", method: "release", result_target: "audio-status" %>
