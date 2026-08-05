@@ -1,6 +1,6 @@
 <%= text "WebView ready", id: "webview-status", class: "text-sm text-slate-500 selectable" %>
-<%= container height: 480 do %>
-  <%= web_view url: "https://rubyonrails.org", method: "get", height: 480,
+<%= container expand: true do %>
+  <%= web_view url: "https://rubyonrails.org", method: "get", expand: true,
                on_page_started_target: "webview-status", on_page_started_message: "Loading…",
                on_page_ended_target: "webview-status", on_page_ended_message: "Loaded",
                on_web_resource_error_target: "webview-status", on_web_resource_error_prefix: "Load error: " %>
