@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 Ruflet::Rails.configure do |config|
-  # The demo runs on :3001 (port 3000 is often taken). html_app fetches its
-  # own screens over this URL, so it must match the port `bin/rails s` uses.
-  config.backend_url = ENV.fetch("RUFLET_BACKEND_URL", "http://localhost:3001")
+  # Keep this URL aligned with the Rails server. RufletApp/demo/hybride.rb uses
+  # the same base URL to mount this server-driven section inside a normal app.
+  config.backend_url = ENV.fetch("RUFLET_BACKEND_URL", "http://127.0.0.1:3000")
   config.app_name = "Ruflet Rails Demo"
 
   # Build artwork. In a Rails app this initializer is the source of truth —

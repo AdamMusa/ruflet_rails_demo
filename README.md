@@ -18,11 +18,27 @@ config/initializers/ruflet.rb    app name, services, extensions, build artwork
 ## Run
 
 ```bash
-PORT=3001 RUFLET_BACKEND_URL=http://localhost:3001 bin/rails server -p 3001
+bin/rails server -b 0.0.0.0 -p 3000
 ```
 
-Connect Ruflet Explorer to `http://localhost:3001/ws`. The same URLs also render
-as ordinary HTML in a browser, which is what keeps the screens inspectable.
+Connect Ruflet Explorer or `ruflet_app` to `http://127.0.0.1:3000`. The same
+URLs also render as ordinary HTML in a browser, which is what keeps the screens
+inspectable.
+
+## Open it inside a normal Ruflet app
+
+The `RufletApp/demo/hybride.rb` example combines two sections in one client:
+local Ruflet controls and this server-driven Rails UI.
+
+Keep this Rails server running, then start the hybrid app from another terminal:
+
+```bash
+cd ../../RufletApp/demo
+../../FlutterApp/ruflet/packages/ruflet/bin/ruflet run hybride
+```
+
+Open the Rails tab to display this app through `ruflet_app`. On a physical
+phone, replace `127.0.0.1` in `hybride.rb` with the computer's LAN address.
 
 ## Writing a screen
 
