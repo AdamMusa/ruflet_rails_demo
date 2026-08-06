@@ -1,0 +1,6 @@
+<%# Shared bottom navigation for the chat app tabs. %>
+<%= bottom_nav do %>
+  <%= nav_item icon: "chat", label: "Chats", href: whatsapp_path, selected: active == "chats" %>
+  <%= nav_item icon: "donut_large", label: "Status", href: whatsapp_status_path, selected: active == "status" %>
+  <%= nav_item icon: "call", label: "Calls", href: whatsapp_calls_path, selected: active == "calls" %>
+<% end %>

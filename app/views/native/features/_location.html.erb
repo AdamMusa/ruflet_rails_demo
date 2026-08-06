@@ -1,0 +1,11 @@
+<%= geolocator id: "studio-geolocator" %>
+<%= text "Geolocator ready", id: "location-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Permission", service: "location-permission", result_target: "location-status" %>
+  <%= button "Request permission", service: "location-request-permission", result_target: "location-status" %>
+  <%= button "Current position", service: "location", result_target: "location-status" %>
+  <%= button "Location enabled", service: "location-service-enabled", result_target: "location-status" %>
+  <%= button "Last known", service: "location-last", result_target: "location-status" %>
+  <%= button "Location settings", service: "location-open-settings", result_target: "location-status" %>
+  <%= button "App settings", service: "location-open-app-settings", result_target: "location-status" %>
+<% end %>

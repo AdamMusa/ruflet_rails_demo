@@ -1,0 +1,36 @@
+<%# Chat app — chat list. Every row is a real native control; taps push the
+    conversation, and the bottom bar switches tabs. %>
+<%= appbar "Chat", class: "bg-emerald-600",
+      leading_icon: "arrow_back", leading_href: native_home_path, leading_nav: "root" do %>
+  <%= appbar_action "search", whatsapp_path %>
+  <%= appbar_action "more_vert", whatsapp_path %>
+<% end %>
+
+<%= column class: "gap-0" do %>
+  <% @contacts.each do |id, c| %>
+    <a href="<%= whatsapp_conversation_path(id) %>">
+      <%= row class: "gap-3 items-center px-4 py-3" do %>
+        <%= avatar c[:avatar], class: "#{c[:color]}" %>
+        <%= column class: "gap-1 flex-1" do %>
+          <%= row class: "justify-between items-center" do %>
+            <%= text c[:name], class: "font-semibold text-slate-900" %>
+            <%= text c[:time], class: "text-xs #{c[:unread] > 0 ? 'text-emerald-600' : 'text-slate-400'}" %>
+          <% end %>
+          <%= row class: "justify-between items-center" do %>
+            <%= text c[:last], class: "text-sm text-slate-500 flex-1" %>
+            <% if c[:unread] > 0 %>
+              <%= container class: "bg-emerald-500 rounded-full px-2 py-1" do %>
+                <%= text c[:unread], class: "text-xs text-white font-bold" %>
+              <% end %>
+            <% end %>
+          <% end %>
+        <% end %>
+      <% end %>
+    </a>
+    <hr>
+  <% end %>
+<% end %>
+
+<%= fab icon: "chat", href: whatsapp_conversation_path("ada") %>
+
+<%= render "nav", active: "chats" %>

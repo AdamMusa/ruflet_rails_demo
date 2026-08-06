@@ -1,0 +1,6 @@
+<%= user_accelerometer on_reading_target: "sensor-status", on_reading_prefix: "User accelerometer: ", on_error_target: "sensor-status", on_error_prefix: "User accelerometer error: " %>
+<%= text "Waiting for user accelerometer reading...", id: "sensor-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2" do %>
+  <%= button "Start", service: "user-accelerometer-start", interval: 500, result_target: "sensor-status" %>
+  <%= button "Stop", service: "user-accelerometer-stop", result_target: "sensor-status" %>
+<% end %>

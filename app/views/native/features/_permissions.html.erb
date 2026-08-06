@@ -1,0 +1,7 @@
+<%= permission_handler %>
+<%= text "Permission handler ready", id: "permission-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Camera status", service: "permission-status", name: "camera", result_target: "permission-status" %>
+  <%= button "Request camera", service: "permission", name: "camera", result_target: "permission-status" %>
+  <%= button "Open settings", service: "permission-settings", result_target: "permission-status" %>
+<% end %>

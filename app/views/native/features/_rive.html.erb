@@ -1,0 +1,10 @@
+<%= text "Rive ready", id: "rive-status", class: "text-sm text-slate-500 selectable" %>
+<%= container class: "h-80 rounded-xl" do %>
+  <%= rive "https://cdn.rive.app/animations/vehicles.riv", id: "studio-rive", width: 300, height: 300, fit: "contain", speed_multiplier: 1.0 %>
+<% end %>
+<%= slider min: 0, max: 3, value: 1, divisions: 6, label: "Speed = {value}x", on_change_control: "studio-rive", on_change_property: "speed_multiplier", on_change_target: "rive-status", on_change_prefix: "Speed: " %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <% %w[contain cover fill fit_width fit_height none].each do |fit| %>
+    <%= button fit, service: "control", target: "studio-rive", method: "update", args: { fit: fit }, result_target: "rive-status" %>
+  <% end %>
+<% end %>

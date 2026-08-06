@@ -1,0 +1,9 @@
+<%= text "Camera ready", id: "camera-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Open camera", service: "camera-open", target: "studio-camera", timeout: 5, result_target: "camera-status", capture_target: "camera-capture", preview_target: "camera-preview" %>
+  <%= button "Take picture", id: "camera-capture", service: "camera-capture", target: "studio-camera", disabled: true, result_target: "camera-status" %>
+<% end %>
+<%= text "Tap Open camera to initialize and show preview.", class: "text-xs text-slate-500" %>
+<%= container id: "camera-preview", height: 1, class: "rounded-xl" do %>
+  <%= camera id: "studio-camera", preview_enabled: true, on_error_target: "camera-status", on_error_prefix: "Camera error: " %>
+<% end %>

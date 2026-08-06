@@ -1,0 +1,16 @@
+<%= text "Native chart controls with their data authored as nested ERB.", class: "text-sm text-slate-500" %>
+<%= h3 "Bar chart" %>
+<%= bar_chart id: "studio-bar-chart", width: 320, height: 220, min_y: 0, max_y: 100 do %>
+  <% [[0, 40, "#69db7c"], [1, 70, "#74c0fc"], [2, 55, "#ffa94d"], [3, 90, "#b197fc"]].each do |x, value, color| %>
+    <%= bar_chart_group x: x do %>
+      <%= bar_chart_rod from_y: 0, to_y: value, width: 22, color: color, border_radius: 4 %>
+    <% end %>
+  <% end %>
+<% end %>
+<%= h3 "Pie chart" %>
+<%= pie_chart id: "studio-pie-chart", width: 260, height: 260, center_space_radius: 42, sections_space: 3 do %>
+  <%= pie_chart_section value: 35, title: "35%", color: "#69db7c", radius: 72 %>
+  <%= pie_chart_section value: 30, title: "30%", color: "#74c0fc", radius: 72 %>
+  <%= pie_chart_section value: 20, title: "20%", color: "#ffa94d", radius: 72 %>
+  <%= pie_chart_section value: 15, title: "15%", color: "#b197fc", radius: 72 %>
+<% end %>

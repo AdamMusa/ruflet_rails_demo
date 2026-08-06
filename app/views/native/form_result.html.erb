@@ -1,0 +1,17 @@
+<%= appbar "Form" %>
+
+<%= column class: "p-6 gap-4" do %>
+  <%= h2 "Received!" %>
+  <%= card class: "p-4" do %>
+    <%= column class: "gap-3 p-4" do %>
+      <% @submitted.each do |label, value| %>
+        <%= row class: "gap-2 justify-between" do %>
+          <%= text label, class: "text-slate-500" %>
+          <%= text value, class: "font-semibold" %>
+        <% end %>
+      <% end %>
+    <% end %>
+  <% end %>
+  <%= button "Fill it again", variant: "tonal", icon: "refresh",
+             on_click: "get:#{native_form_path}" %>
+<% end %>

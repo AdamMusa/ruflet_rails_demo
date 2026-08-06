@@ -1,0 +1,24 @@
+<%= container class: "p-6 pb-4" do %>
+  <%= column class: "gap-4 items-stretch" do %>
+    <%= text "Map ready", id: "map-status", class: "text-sm text-slate-500 selectable" %>
+    <%= row class: "gap-2 flex-wrap" do %>
+      <%= button "Center", service: "control", target: "studio-map", method: "center_on", args: { point: { latitude: 51.505, longitude: -0.09 }, zoom: 13 }, result_target: "map-status" %>
+      <%= button "Zoom in", service: "control", target: "studio-map", method: "zoom_in", result_target: "map-status" %>
+      <%= button "Zoom out", service: "control", target: "studio-map", method: "zoom_out", result_target: "map-status" %>
+    <% end %>
+  <% end %>
+<% end %>
+<%= container class: "flex-1 w-full" do %>
+  <%= map id: "studio-map", expand: true, initial_center: [51.505, -0.09], initial_zoom: 13, min_zoom: 2, max_zoom: 18, on_tap_target: "map-status", on_tap_prefix: "Map tap: ", on_position_change_target: "map-status", on_position_change_prefix: "Map position: " do %>
+    <%= tile_layer url_template: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", user_agent_package_name: "com.izeesoft.rufletexplorer" %>
+    <%= simple_attribution text: "OpenStreetMap contributors, CARTO" %>
+    <%= marker_layer do %>
+      <%= marker coordinates: [51.505, -0.09], width: 44, height: 44 do %>
+        <%= icon "location_on", color: "#ff5a5f" %>
+      <% end %>
+    <% end %>
+    <%= circle_layer do %>
+      <%= circle_marker coordinates: [51.505, -0.09], radius: 400, color: "#4f8cff33", border_color: "#4f8cff", border_stroke_width: 2 %>
+    <% end %>
+  <% end %>
+<% end %>

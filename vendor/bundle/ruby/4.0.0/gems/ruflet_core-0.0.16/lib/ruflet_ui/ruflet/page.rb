@@ -1,0 +1,2056 @@
+# frozen_string_literal: true
+
+require_relative "event"
+require "ruflet_protocol"
+require_relative "control"
+require_relative "ui/widget_builder"
+require_relative "ui/control_factory"
+require_relative "icons/material_icon_lookup"
+require_relative "icons/cupertino_icon_lookup"
+require "set"
+require "cgi"
+require "thread"
+require "timeout"
+
+module Ruflet
+  class Page
+    class SharedPreferencesService
+      def initialize(page)
+        @page = page
+      end
+
+      def set(key, value, timeout: 10, on_result: nil)
+        invoke("set", { "key" => key, "value" => value }, timeout: timeout, on_result: on_result)
+      end
+
+      def get(key, timeout: 10, on_result: nil)
+        invoke("get", { "key" => key }, timeout: timeout, on_result: on_result)
+      end
+
+      def contains_key(key, timeout: 10, on_result: nil)
+        invoke("contains_key", { "key" => key }, timeout: timeout, on_result: on_result)
+      end
+
+      def get_keys(key_prefix, timeout: 10, on_result: nil)
+        invoke("get_keys", { "key_prefix" => key_prefix }, timeout: timeout, on_result: on_result)
+      end
+
+      def remove(key, timeout: 10, on_result: nil)
+        invoke("remove", { "key" => key }, timeout: timeout, on_result: on_result)
+      end
+
+      def clear(timeout: 10, on_result: nil)
+        invoke("clear", nil, timeout: timeout, on_result: on_result)
+      end
+
+      private
+
+      def invoke(method_name, args, timeout:, on_result:)
+        @page.__send__(:invoke_shared_preferences, method_name, args: args, timeout: timeout, on_result: on_result)
+      end
+    end
+
+    class WakelockService
+      def initialize(page)
+        @page = page
+      end
+
+      def enable(timeout: 10, on_result: nil)
+        invoke("enable", timeout: timeout, on_result: on_result)
+      end
+
+      def disable(timeout: 10, on_result: nil)
+        invoke("disable", timeout: timeout, on_result: on_result)
+      end
+
+      def is_enabled(timeout: 10, on_result: nil)
+        invoke("is_enabled", timeout: timeout, on_result: on_result)
+      end
+
+      private
+
+      def invoke(method_name, timeout:, on_result:)
+        @page.__send__(:invoke_wakelock, method_name, timeout: timeout, on_result: on_result)
+      end
+    end
+
+    class FlashlightService
+      def initialize(page)
+        @page = page
+      end
+
+      def on(timeout: 10, on_result: nil)
+        invoke("on", timeout: timeout, on_result: on_result)
+      end
+
+      def off(timeout: 10, on_result: nil)
+        invoke("off", timeout: timeout, on_result: on_result)
+      end
+
+      def is_available(timeout: 10, on_result: nil)
+        invoke("is_available", timeout: timeout, on_result: on_result)
+      end
+
+      private
+
+      def invoke(method_name, timeout:, on_result:)
+        @page.__send__(:invoke_flashlight, method_name, timeout: timeout, on_result: on_result)
+      end
+    end
+
+    class ScreenBrightnessService
+      def initialize(page)
+        @page = page
+      end
+
+      %w[
+        can_change_system_screen_brightness
+        get_application_screen_brightness
+        get_system_screen_brightness
+        is_animate
+        is_auto_reset
+        reset_application_screen_brightness
+      ].each do |method_name|
+        define_method(method_name) do |timeout: 10, on_result: nil|
+          invoke(method_name, nil, timeout: timeout, on_result: on_result)
+        end
+      end
+
+      def set_animate(animate, timeout: 10, on_result: nil)
+        invoke("set_animate", { "value" => animate }, timeout: timeout, on_result: on_result)
+      end
+
+      def set_auto_reset(auto_reset, timeout: 10, on_result: nil)
+        invoke("set_auto_reset", { "value" => auto_reset }, timeout: timeout, on_result: on_result)
+      end
+
+      def set_application_screen_brightness(brightness, timeout: 10, on_result: nil)
+        invoke("set_application_screen_brightness", { "value" => brightness }, timeout: timeout, on_result: on_result)
+      end
+
+      def set_system_screen_brightness(brightness, timeout: 10, on_result: nil)
+        invoke("set_system_screen_brightness", { "value" => brightness }, timeout: timeout, on_result: on_result)
+      end
+
+      private
+
+      def invoke(method_name, args, timeout:, on_result:)
+        @page.__send__(:invoke_screen_brightness, method_name, args: args, timeout: timeout, on_result: on_result)
+      end
+    end
+
+    PAGE_PROP_KEYS = %w[dark_theme fonts route rtl show_semantics_debugger theme theme_mode title vertical_alignment horizontal_alignment scroll].freeze
+    DIALOG_PROP_KEYS = %w[dialog snack_bar bottom_sheet].freeze
+    WIDGET_HELPER_METHODS = (
+      Ruflet::UI::MaterialControlMethods.instance_methods(false) +
+      Ruflet::UI::CupertinoControlMethods.instance_methods(false) +
+      %i[control widget]
+    ).map(&:to_s).to_set.freeze
+
+    attr_reader :session_id, :client_details, :views
+
+    def initialize(session_id:, client_details:, sender:)
+      @session_id = session_id
+      @client_details = client_details
+      @sender = sender
+      @control_index = {}
+      @wire_index = {}
+      @next_wire_id = 100
+      @view_id = 20
+      @root_controls = []
+      @views = []
+      @dialogs = []
+      @overlay_container_mounted = false
+      @dialogs_container_mounted = false
+      @services_container_mounted = false
+      @visual_service_controls = {}
+      @page_event_handlers = {}
+      @view_props = {}
+      @page_props = { "route" => (client_details["route"] || "/") }
+      @overlay_container = Ruflet::Control.new(
+        type: "overlay",
+        id: "_overlay",
+        controls: []
+      )
+      @services_container = Ruflet::Control.new(
+        type: "service_registry",
+        id: "_services",
+        "_services": [],
+        "_internals": { "uid" => Ruflet::Control.generate_id }
+      )
+      @dialogs_container = Ruflet::Control.new(
+        type: "dialogs",
+        id: "_dialogs",
+        controls: []
+      )
+      @invoke_waiters = {}
+      @invoke_callbacks = {}
+      @invoke_waiters_mutex = Mutex.new
+      @shared_preferences_proxy = SharedPreferencesService.new(self)
+      @wakelock_proxy = WakelockService.new(self)
+      @flashlight_proxy = FlashlightService.new(self)
+      @screen_brightness_proxy = ScreenBrightnessService.new(self)
+      refresh_overlay_container!
+      refresh_services_container!
+      refresh_dialogs_container!
+    end
+
+    def set_view_props(props)
+      split_props(normalize_props(props || {}))
+      self
+    end
+
+    def title
+      @page_props["title"]
+    end
+
+    def title=(value)
+      @page_props["title"] = value
+    end
+
+    def route
+      @page_props["route"]
+    end
+
+    def route=(value)
+      @page_props["route"] = value
+    end
+
+    def vertical_alignment
+      @page_props["vertical_alignment"] || @view_props["vertical_alignment"]
+    end
+
+    def vertical_alignment=(value)
+      v = normalize_value("vertical_alignment", value)
+      @page_props["vertical_alignment"] = v
+      @view_props["vertical_alignment"] = v
+    end
+
+    def horizontal_alignment
+      @page_props["horizontal_alignment"] || @view_props["horizontal_alignment"]
+    end
+
+    def horizontal_alignment=(value)
+      v = normalize_value("horizontal_alignment", value)
+      @page_props["horizontal_alignment"] = v
+      @view_props["horizontal_alignment"] = v
+    end
+
+    def bgcolor
+      @view_props["bgcolor"]
+    end
+
+    def bgcolor=(value)
+      @view_props["bgcolor"] = normalize_value("bgcolor", value)
+    end
+
+    # Client-reported page properties. The Flutter client sends these in its
+    # register payload (see Protocol.normalize_register_payload), where they are
+    # stored in @client_details; expose them as readers so apps can do
+    # `page.width`, `page.platform`, etc. without reaching into client_details.
+    def width
+      client_reported_prop("width")
+    end
+
+    def height
+      client_reported_prop("height")
+    end
+
+    def platform
+      client_reported_prop("platform")
+    end
+
+    def platform_brightness
+      client_reported_prop("platform_brightness")
+    end
+
+    def web
+      client_reported_prop("web")
+    end
+
+    def pwa
+      client_reported_prop("pwa")
+    end
+
+    def wasm
+      client_reported_prop("wasm")
+    end
+
+    def media
+      client_reported_prop("media")
+    end
+
+    def add(*controls, appbar: nil, bottom_appbar: nil, floating_action_button: nil, navigation_bar: nil, dialog: nil, snack_bar: nil, bottom_sheet: nil)
+      controls = controls.flatten
+      visited = Set.new
+      controls.each { |c| register_control_tree(c, visited) }
+      @root_controls = controls
+
+      update_view_slot("appbar", appbar)
+      update_view_slot("bottom_appbar", bottom_appbar)
+      update_view_slot("floating_action_button", floating_action_button)
+      update_view_slot("navigation_bar", navigation_bar)
+      @dialog = dialog if dialog
+      @snack_bar = snack_bar if snack_bar
+      @bottom_sheet = bottom_sheet if bottom_sheet
+
+      refresh_dialogs_container!
+      @view_props.each_value { |value| register_embedded_value(value, visited) }
+
+      send_view_patch
+
+      self
+    end
+
+    def views=(value)
+      @views = Array(value).compact
+      self
+    end
+
+    def services
+      @services_container.props["_services"] ||= []
+    end
+
+    def services=(value)
+      @services_container.props["_services"] = Array(value).compact
+      refresh_services_container!
+      push_services_update!
+      self
+    end
+
+    def shared_preferences(**props)
+      return service(:shared_preferences, **props) unless props.empty?
+
+      @shared_preferences_proxy
+    end
+
+    def wakelock(**props)
+      return service(:wakelock, **props) unless props.empty?
+
+      @wakelock_proxy
+    end
+
+    def flashlight(**props)
+      return service(:flashlight, **props) unless props.empty?
+
+      @flashlight_proxy
+    end
+
+    def screen_brightness(**props)
+      return service(:screen_brightness, **props) unless props.empty?
+
+      @screen_brightness_proxy
+    end
+
+    def audio(**props)
+      service(:audio, **props)
+    end
+
+    def audio_recorder(**props)
+      service(:audio_recorder, **props)
+    end
+
+    def browser_context_menu(**props)
+      service(:browser_context_menu, **props)
+    end
+
+    def window(**props)
+      service(:window, **props)
+    end
+
+    def tester(**props)
+      service(:tester, **props)
+    end
+
+    def add_service(*value)
+      @services_container.props["_services"] = services + value.flatten.compact
+      refresh_services_container!
+      push_services_update!
+      self
+    end
+
+    def remove_service(*value)
+      targets = value.flatten.compact
+      return self if targets.empty?
+
+      @services_container.props["_services"] = services.reject do |service|
+        targets.any? do |target|
+          case target
+          when Control
+            service.equal?(target) || (!target.id.nil? && service.id.to_s == target.id.to_s)
+          else
+            needle = target.to_s
+            service.id.to_s == needle || service.type.to_s.downcase == needle.downcase
+          end
+        end
+      end
+
+      refresh_services_container!
+      push_services_update!
+      self
+    end
+
+    def service(type, **props)
+      mapped_props = normalize_props(props || {})
+      id = mapped_props.delete("id")
+      normalized_type = type.to_s.downcase
+      compact_type = normalized_type.delete("_")
+
+      if visual_service_type?(normalized_type)
+        key = id ? "id:#{id}" : normalized_type
+        existing = @visual_service_controls[key]
+        return existing if existing
+
+        svc = Ruflet::UI::ControlFactory.build(type.to_s, id: id&.to_s, **mapped_props)
+        @visual_service_controls[key] = svc
+        return svc
+      end
+
+      existing =
+        if id
+          services.find { |s| s.is_a?(Control) && s.id.to_s == id.to_s }
+        else
+          services.find do |s|
+            s.is_a?(Control) && s.type.to_s.downcase.delete("_") == compact_type
+          end
+        end
+      return existing if existing
+
+      svc = Ruflet::UI::ControlFactory.build(type.to_s, id: id&.to_s, **mapped_props)
+      add_service(svc) unless services.include?(svc)
+      svc
+    end
+
+    def go(route, **query_params)
+      @page_props["route"] = build_route(route, query_params)
+      dispatch_page_event(name: "route_change", data: @page_props["route"])
+      send_view_patch
+      self
+    end
+
+    def navigate(route, **query_params)
+      go(route, **query_params)
+    end
+
+    def push_route(route, **query_params)
+      go(route, **query_params)
+    end
+
+    def query
+      parse_query(route)
+    end
+
+    def on_route_change=(handler)
+      @page_event_handlers["route_change"] = handler
+    end
+
+    def on_view_pop=(handler)
+      @page_event_handlers["view_pop"] = handler
+    end
+
+    def on_resize=(handler)
+      @page_event_handlers["resize"] = handler
+    end
+
+    def on(event_name, &block)
+      @page_event_handlers[event_name.to_s.sub(/\Aon_/, "")] = block
+      self
+    end
+
+    def mount(&block)
+      builder = WidgetBuilder.new
+      builder.instance_eval(&block)
+      add(*builder.children)
+    end
+
+    def appbar=(value)
+      @view_props["appbar"] = value
+    end
+
+    def bottom_appbar=(value)
+      @view_props["bottom_appbar"] = value
+    end
+
+    def bottomappbar=(value)
+      self.bottom_appbar = value
+    end
+
+    def floating_action_button=(value)
+      @view_props["floating_action_button"] = value
+    end
+
+    def drawer
+      @view_props["drawer"]
+    end
+
+    def drawer=(value)
+      @view_props["drawer"] = value
+    end
+
+    def end_drawer
+      @view_props["end_drawer"]
+    end
+
+    def end_drawer=(value)
+      @view_props["end_drawer"] = value
+    end
+
+    def show_drawer(timeout: 10, on_result: nil)
+      raise ArgumentError, "show_drawer requires drawer" unless drawer
+
+      invoke_current_view("show_drawer", timeout: timeout, on_result: on_result)
+      self
+    end
+
+    def close_drawer(timeout: 10, on_result: nil)
+      invoke_current_view("close_drawer", timeout: timeout, on_result: on_result)
+      self
+    end
+
+    def show_end_drawer(timeout: 10, on_result: nil)
+      raise ArgumentError, "show_end_drawer requires end_drawer" unless end_drawer
+
+      invoke_current_view("show_end_drawer", timeout: timeout, on_result: on_result)
+      self
+    end
+
+    def close_end_drawer(timeout: 10, on_result: nil)
+      invoke_current_view("close_end_drawer", timeout: timeout, on_result: on_result)
+      self
+    end
+
+    def dialog = @dialog
+
+    def dialog=(value)
+      @dialog = value
+      refresh_dialogs_container!
+      push_dialogs_update! if @dialogs_container_mounted
+    end
+
+    def snack_bar=(value)
+      @snack_bar = value
+      refresh_dialogs_container!
+      push_dialogs_update! if @dialogs_container_mounted
+    end
+
+    def snackbar=(value)
+      self.snack_bar = value
+    end
+
+    def bottom_sheet=(value)
+      @bottom_sheet = value
+      refresh_dialogs_container!
+    end
+
+    def bottomsheet=(value)
+      self.bottom_sheet = value
+    end
+
+    def show_dialog(dialog_control)
+      return self unless dialog_control
+
+      return self if dialog_open?(dialog_control)
+
+      dialog_control.props["open"] = true
+      remove_existing_singleton_dialogs(dialog_control)
+      @dialogs << dialog_control unless @dialogs.include?(dialog_control)
+      refresh_dialogs_container!
+      send_view_patch unless @dialogs_container.wire_id
+      push_dialogs_update!
+      self
+    end
+
+    def invoke(control_or_id, method_name, args: nil, timeout: 10, on_result: nil)
+      control_id =
+        if page_control_target?(control_or_id)
+          1
+        else
+          control = resolve_control(control_or_id)
+          return nil unless control
+          control.wire_id
+        end
+
+      call_id = "call_#{Ruflet::Control.generate_id}"
+      if on_result.respond_to?(:call)
+        @invoke_waiters_mutex.synchronize { @invoke_callbacks[call_id] = on_result }
+        if embedded_async_timeout_available? && !timeout.nil?
+          Thread.new(call_id, timeout.to_f) do |pending_call_id, invoke_timeout|
+            sleep([invoke_timeout, 0.0].max + 0.1)
+            callback = @invoke_waiters_mutex.synchronize { @invoke_callbacks.delete(pending_call_id) }
+            callback&.call(nil, "execution expired")
+          rescue StandardError => e
+            Kernel.warn("invoke timeout callback error: #{e.class}: #{e.message}")
+          end
+        end
+      end
+      payload = {
+        "control_id" => control_id,
+        "call_id" => call_id,
+        "name" => method_name.to_s,
+        "args" => args
+      }
+      payload["timeout"] = timeout unless timeout.nil?
+      send_message(Protocol::ACTIONS[:invoke_control_method], payload)
+
+      call_id
+    end
+
+    # Synchronous invoke for controls/services that must return a value
+    # before continuing (e.g. picker selection, camera discovery/init).
+    def invoke_sync(control_or_id, method_name, args: nil, timeout: 10)
+      invoke_and_wait(control_or_id, method_name, args: args, timeout: timeout)
+    end
+
+    def launch_url(url, mode: nil, web_view_configuration: nil, browser_configuration: nil, web_only_window_name: nil, timeout: 10, on_result: nil)
+      url_launcher = ensure_url_launcher_service
+      args = { "url" => url }
+      args["mode"] = mode unless mode.nil?
+      args["web_view_configuration"] = web_view_configuration unless web_view_configuration.nil?
+      args["browser_configuration"] = browser_configuration unless browser_configuration.nil?
+      args["web_only_window_name"] = web_only_window_name unless web_only_window_name.nil?
+      invoke(
+        url_launcher,
+        "launch_url",
+        args: args,
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def can_launch_url(url, timeout: 10)
+      url_launcher = ensure_url_launcher_service
+      invoke(url_launcher, "can_launch_url", args: { "url" => url }, timeout: timeout)
+    end
+
+    def close_in_app_web_view(timeout: 10, on_result: nil)
+      url_launcher = ensure_url_launcher_service
+      invoke(url_launcher, "close_in_app_web_view", timeout: timeout, on_result: on_result)
+    end
+
+    def open_window(url, title: nil, width: nil, height: nil, timeout: 10, on_result: nil)
+      url_launcher = ensure_url_launcher_service
+      args = { "url" => url }
+      args["title"] = title unless title.nil?
+      args["width"] = width unless width.nil?
+      args["height"] = height unless height.nil?
+      invoke(url_launcher, "open_window", args: args, timeout: timeout, on_result: on_result)
+    end
+
+    def supports_launch_mode(mode, timeout: 10, on_result: nil)
+      url_launcher = ensure_url_launcher_service
+      invoke(url_launcher, "supports_launch_mode", args: { "mode" => mode }, timeout: timeout, on_result: on_result)
+    end
+
+    def supports_close_for_launch_mode(mode, timeout: 10, on_result: nil)
+      url_launcher = ensure_url_launcher_service
+      invoke(url_launcher, "supports_close_for_launch_mode", args: { "mode" => mode }, timeout: timeout, on_result: on_result)
+    end
+
+    # File picker helpers: create an ephemeral service, invoke method, and dispose it.
+    def pick_files(
+      dialog_title: nil,
+      initial_directory: nil,
+      file_type: "any",
+      allowed_extensions: nil,
+      allow_multiple: false,
+      with_data: false,
+      timeout: nil,
+      on_result: nil
+    )
+      invoke_file_picker(
+        "pick_files",
+        compact_service_args(
+          "dialog_title" => dialog_title,
+          "initial_directory" => initial_directory,
+          "file_type" => file_type,
+          "allowed_extensions" => allowed_extensions,
+          "allow_multiple" => allow_multiple,
+          "with_data" => with_data
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def save_file(
+      dialog_title: nil,
+      file_name: nil,
+      initial_directory: nil,
+      file_type: "any",
+      allowed_extensions: nil,
+      src_bytes: nil,
+      timeout: nil,
+      on_result: nil
+    )
+      invoke_file_picker(
+        "save_file",
+        compact_service_args(
+          "dialog_title" => dialog_title,
+          "file_name" => file_name,
+          "initial_directory" => initial_directory,
+          "file_type" => file_type,
+          "allowed_extensions" => allowed_extensions,
+          "src_bytes" => src_bytes
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def get_directory_path(dialog_title: nil, initial_directory: nil, timeout: nil, on_result: nil)
+      invoke_file_picker(
+        "get_directory_path",
+        compact_service_args(
+          "dialog_title" => dialog_title,
+          "initial_directory" => initial_directory
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def upload(files, timeout: nil, on_result: nil)
+      invoke_file_picker(
+        "upload",
+        { "files" => Array(files).map { |file| normalize_service_value(file) } },
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def upload_files(files, timeout: nil, on_result: nil)
+      upload(files, timeout: timeout, on_result: on_result)
+    end
+
+    def disable_browser_context_menu(timeout: 10, on_result: nil)
+      invoke_browser_context_menu("disable_menu", timeout: timeout, on_result: on_result)
+    end
+
+    def enable_browser_context_menu(timeout: 10, on_result: nil)
+      invoke_browser_context_menu("enable_menu", timeout: timeout, on_result: on_result)
+    end
+
+    def wait_until_ready_to_show(timeout: 10, on_result: nil)
+      invoke_window("wait_until_ready_to_show", timeout: timeout, on_result: on_result)
+    end
+
+    def window_to_front(timeout: 10, on_result: nil)
+      invoke_window("to_front", timeout: timeout, on_result: on_result)
+    end
+
+    def center_window(timeout: 10, on_result: nil)
+      invoke_window("center", timeout: timeout, on_result: on_result)
+    end
+
+    def close_window(timeout: 10, on_result: nil)
+      invoke_window("close", timeout: timeout, on_result: on_result)
+    end
+
+    def destroy_window(timeout: 10, on_result: nil)
+      invoke_window("destroy", timeout: timeout, on_result: on_result)
+    end
+
+    def start_window_dragging(timeout: 10, on_result: nil)
+      invoke_window("start_dragging", timeout: timeout, on_result: on_result)
+    end
+
+    def start_window_resizing(edge, timeout: 10, on_result: nil)
+      invoke_window(
+        "start_resizing",
+        args: { "edge" => normalize_service_value(edge) },
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def tester_pump(options = nil, duration: nil, timeout: 10, on_result: nil)
+      duration = options[:duration] || options["duration"] if options.is_a?(Hash) && duration.nil?
+      invoke_tester("pump", args: compact_service_args("duration" => duration), timeout: timeout, on_result: on_result)
+    end
+
+    def tester_pump_and_settle(options = nil, duration: nil, timeout: 10, on_result: nil)
+      duration = options[:duration] || options["duration"] if options.is_a?(Hash) && duration.nil?
+      invoke_tester("pump_and_settle", args: compact_service_args("duration" => duration), timeout: timeout, on_result: on_result)
+    end
+
+    def find_by_text(text, timeout: 10, on_result: nil)
+      invoke_tester("find_by_text", args: { "text" => text }, timeout: timeout, on_result: on_result)
+    end
+
+    def find_by_text_containing(pattern, timeout: 10, on_result: nil)
+      invoke_tester("find_by_text_containing", args: { "pattern" => pattern }, timeout: timeout, on_result: on_result)
+    end
+
+    def find_by_key(key, timeout: 10, on_result: nil)
+      invoke_tester("find_by_key", args: { "key" => key }, timeout: timeout, on_result: on_result)
+    end
+
+    def find_by_tooltip(value, timeout: 10, on_result: nil)
+      invoke_tester("find_by_tooltip", args: { "value" => value }, timeout: timeout, on_result: on_result)
+    end
+
+    def find_by_icon(icon, timeout: 10, on_result: nil)
+      invoke_tester("find_by_icon", args: { "icon" => normalize_service_value(icon) }, timeout: timeout, on_result: on_result)
+    end
+
+    def take_screenshot(name, timeout: 10, on_result: nil)
+      invoke_tester("take_screenshot", args: { "name" => name }, timeout: timeout, on_result: on_result)
+    end
+
+    def tap(finder_id = nil, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester_finder("tap", finder_id, finder_index: finder_index, timeout: timeout, on_result: on_result)
+    end
+
+    def mouse_click(finder_id = nil, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester_finder("mouse_click", finder_id, finder_index: finder_index, timeout: timeout, on_result: on_result)
+    end
+
+    def mouse_double_click(finder_id = nil, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester_finder("mouse_double_click", finder_id, finder_index: finder_index, timeout: timeout, on_result: on_result)
+    end
+
+    def right_mouse_click(finder_id = nil, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester_finder("right_mouse_click", finder_id, finder_index: finder_index, timeout: timeout, on_result: on_result)
+    end
+
+    def tap_at(offset = nil, timeout: 10, on_result: nil)
+      invoke_tester_at("tap_at", offset, timeout: timeout, on_result: on_result)
+    end
+
+    def mouse_click_at(offset = nil, timeout: 10, on_result: nil)
+      invoke_tester_at("mouse_click_at", offset, timeout: timeout, on_result: on_result)
+    end
+
+    def mouse_double_click_at(offset = nil, timeout: 10, on_result: nil)
+      invoke_tester_at("mouse_double_click_at", offset, timeout: timeout, on_result: on_result)
+    end
+
+    def right_mouse_click_at(offset = nil, timeout: 10, on_result: nil)
+      invoke_tester_at("right_mouse_click_at", offset, timeout: timeout, on_result: on_result)
+    end
+
+    def drag(finder_id, offset, finder_index: nil, timeout: 10, on_result: nil)
+      invoke_tester(
+        "drag",
+        args: compact_service_args(
+          "finder_id" => finder_id,
+          "finder_index" => finder_index,
+          "offset" => offset
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def drag_from(start, offset, timeout: 10, on_result: nil)
+      invoke_tester(
+        "drag_from",
+        args: compact_service_args("start" => start, "offset" => offset),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def long_press(finder_id = nil, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester_finder("long_press", finder_id, finder_index: finder_index, timeout: timeout, on_result: on_result)
+    end
+
+    def enter_text(finder_id, text, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester(
+        "enter_text",
+        args: compact_service_args(
+          "finder_id" => finder_id,
+          "finder_index" => finder_index,
+          "text" => text
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def mouse_hover(finder_id = nil, options = nil, finder_index: nil, timeout: 10, on_result: nil)
+      finder_index = options[:finder_index] || options["finder_index"] if options.is_a?(Hash) && finder_index.nil?
+      invoke_tester_finder("mouse_hover", finder_id, finder_index: finder_index, timeout: timeout, on_result: on_result)
+    end
+
+    def tester_teardown(timeout: 10, on_result: nil)
+      invoke_tester("teardown", timeout: timeout, on_result: on_result)
+    end
+
+    def heavy_impact(timeout: 10, on_result: nil)
+      invoke_haptic_feedback("heavy_impact", timeout: timeout, on_result: on_result)
+    end
+
+    def medium_impact(timeout: 10, on_result: nil)
+      invoke_haptic_feedback("medium_impact", timeout: timeout, on_result: on_result)
+    end
+
+    def light_impact(timeout: 10, on_result: nil)
+      invoke_haptic_feedback("light_impact", timeout: timeout, on_result: on_result)
+    end
+
+    def selection_click(timeout: 10, on_result: nil)
+      invoke_haptic_feedback("selection_click", timeout: timeout, on_result: on_result)
+    end
+
+    def vibrate(timeout: 10, on_result: nil)
+      invoke_haptic_feedback("vibrate", timeout: timeout, on_result: on_result)
+    end
+
+    def set_clipboard(value, timeout: nil, on_result: nil)
+      invoke_clipboard_method(
+        "set",
+        args: { "data" => value.to_s },
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def get_clipboard(timeout: nil, on_result: nil)
+      invoke_clipboard_method("get", timeout: timeout, on_result: on_result)
+    end
+
+    def set_clipboard_files(files, timeout: nil, on_result: nil)
+      invoke_clipboard_method(
+        "set_files",
+        args: { "files" => Array(files).map(&:to_s) },
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def get_clipboard_files(timeout: nil, on_result: nil)
+      invoke_clipboard_method("get_files", timeout: timeout, on_result: on_result)
+    end
+
+    def set_clipboard_image(value, timeout: nil, on_result: nil)
+      invoke_clipboard_method(
+        "set_image",
+        args: { "data" => value },
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def get_clipboard_image(timeout: nil, on_result: nil)
+      invoke_clipboard_method("get_image", timeout: timeout, on_result: on_result)
+    end
+
+    def get_connectivity(timeout: nil, on_result: nil)
+      invoke_connectivity_method("get_connectivity", timeout: timeout, on_result: on_result)
+    end
+
+    def get_battery_level(timeout: nil, on_result: nil)
+      invoke_battery_method("get_battery_level", timeout: timeout, on_result: on_result)
+    end
+
+    def get_battery_state(timeout: nil, on_result: nil)
+      invoke_battery_method("get_battery_state", timeout: timeout, on_result: on_result)
+    end
+
+    def is_in_battery_save_mode(timeout: nil, on_result: nil)
+      invoke_battery_method("is_in_battery_save_mode", timeout: timeout, on_result: on_result)
+    end
+
+    def battery_save_mode?(timeout: nil, on_result: nil)
+      is_in_battery_save_mode(timeout: timeout, on_result: on_result)
+    end
+
+    def accelerometer(**props)
+      service(:accelerometer, **props)
+    end
+
+    def gyroscope(**props)
+      service(:gyroscope, **props)
+    end
+
+    def user_accelerometer(**props)
+      service(:user_accelerometer, **props)
+    end
+
+    def magnetometer(**props)
+      service(:magnetometer, **props)
+    end
+
+    def barometer(**props)
+      service(:barometer, **props)
+    end
+
+    def shake_detector(**props)
+      service(:shake_detector, **props)
+    end
+
+    def semantics_service(**props)
+      service(:semantics_service, **props)
+    end
+
+    def screenshot(**props)
+      service(:screenshot, **props)
+    end
+
+    def battery(**props)
+      service(:battery, **props)
+    end
+
+    def connectivity(**props)
+      service(:connectivity, **props)
+    end
+
+    def clipboard(**props)
+      service(:clipboard, **props)
+    end
+
+    def file_picker(**props)
+      service(:file_picker, **props)
+    end
+
+    def url_launcher(**props)
+      service(:url_launcher, **props)
+    end
+
+    def storage_paths(**props)
+      service(:storage_paths, **props)
+    end
+
+    def share(**props)
+      service(:share, **props)
+    end
+
+    def camera(**props)
+      service(:camera, **props)
+    end
+
+    def haptic_feedback(**props)
+      service(:haptic_feedback, **props)
+    end
+
+    def geolocator(**props)
+      service(:geolocator, **props)
+    end
+
+    def permission_handler(**props)
+      service(:permission_handler, **props)
+    end
+
+    def secure_storage(**props)
+      service(:secure_storage, **props)
+    end
+
+    def get_application_cache_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_application_cache_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_application_documents_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_application_documents_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_application_support_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_application_support_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_downloads_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_downloads_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_external_cache_directories(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_external_cache_directories", timeout: timeout, on_result: on_result)
+    end
+
+    def get_external_storage_directories(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_external_storage_directories", timeout: timeout, on_result: on_result)
+    end
+
+    def get_library_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_library_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_external_storage_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_external_storage_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_temporary_directory(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_temporary_directory", timeout: timeout, on_result: on_result)
+    end
+
+    def get_console_log_filename(timeout: nil, on_result: nil)
+      invoke_storage_paths("get_console_log_filename", timeout: timeout, on_result: on_result)
+    end
+
+    def share_text(
+      text = nil,
+      title: nil,
+      subject: nil,
+      preview_thumbnail: nil,
+      share_position_origin: nil,
+      download_fallback_enabled: true,
+      mail_to_fallback_enabled: true,
+      excluded_cupertino_activities: nil,
+      timeout: nil,
+      on_result: nil
+    )
+      share = ensure_share_service
+      invoke(
+        share,
+        "share_text",
+        args: compact_service_args(
+          "text" => text,
+          "title" => title,
+          "subject" => subject,
+          "preview_thumbnail" => preview_thumbnail,
+          "share_position_origin" => share_position_origin,
+          "download_fallback_enabled" => download_fallback_enabled,
+          "mail_to_fallback_enabled" => mail_to_fallback_enabled,
+          "excluded_cupertino_activities" => excluded_cupertino_activities
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def share_uri(
+      uri = nil,
+      share_position_origin: nil,
+      excluded_cupertino_activities: nil,
+      timeout: nil,
+      on_result: nil
+    )
+      share = ensure_share_service
+      invoke(
+        share,
+        "share_uri",
+        args: compact_service_args(
+          "uri" => uri,
+          "share_position_origin" => share_position_origin,
+          "excluded_cupertino_activities" => excluded_cupertino_activities
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def share_files(
+      files = nil,
+      text: nil,
+      title: nil,
+      subject: nil,
+      preview_thumbnail: nil,
+      share_position_origin: nil,
+      download_fallback_enabled: true,
+      mail_to_fallback_enabled: true,
+      excluded_cupertino_activities: nil,
+      timeout: nil,
+      on_result: nil
+    )
+      share = ensure_share_service
+      invoke(
+        share,
+        "share_files",
+        args: compact_service_args(
+          "files" => normalize_share_files(files),
+          "text" => text,
+          "title" => title,
+          "subject" => subject,
+          "preview_thumbnail" => normalize_share_file(preview_thumbnail),
+          "share_position_origin" => share_position_origin,
+          "download_fallback_enabled" => download_fallback_enabled,
+          "mail_to_fallback_enabled" => mail_to_fallback_enabled,
+          "excluded_cupertino_activities" => excluded_cupertino_activities
+        ),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def handle_invoke_method_result(payload)
+      call_id = payload["call_id"].to_s
+      waiter = @invoke_waiters_mutex.synchronize { @invoke_waiters[call_id] }
+      if waiter
+        waiter << payload
+        return true
+      end
+
+      callback = @invoke_waiters_mutex.synchronize { @invoke_callbacks.delete(call_id) }
+      return false unless callback
+
+      callback.call(payload["result"], payload["error"])
+      true
+    rescue StandardError => e
+      Kernel.warn("invoke callback error: #{e.class}: #{e.message}")
+      false
+    end
+
+    def pop_dialog
+      dialog_control = latest_open_dialog
+      return nil unless dialog_control
+
+      dialog_control.props["open"] = false
+      update(dialog_control, open: false)
+      dialog_control
+    end
+
+    def close_dialog(dialog_control)
+      return self unless dialog_control
+
+      dialog_control.props["open"] = false
+      @dialog = nil if @dialog.equal?(dialog_control)
+      remove_dialog_tracking(dialog_control)
+      refresh_dialogs_container!
+      # Patch the dialogs container in place. Forcing a full view re-render
+      # here would remount the whole overlay — fatal while another dialog
+      # (e.g. the form behind a nested picker) is still open. The empty case
+      # is handled inside push_dialogs_update!.
+      push_dialogs_update!
+      self
+    end
+
+    def update(control_or_id = nil, **props)
+      if control_or_id.nil? && props.empty?
+        send_view_patch
+        return self
+      end
+
+      if page_control_target?(control_or_id)
+        split_props(normalize_props(props))
+        send_view_patch
+        return self
+      end
+
+      control = resolve_control(control_or_id)
+      return self unless control
+      wire_id = control.wire_id
+      if wire_id.nil?
+        # Events can race with navigation/disposal; never emit patch_control with nil id.
+        refresh_control_indexes!
+        wire_id = control.wire_id
+      end
+      return self if wire_id.nil?
+
+      patch = normalize_props(props)
+      if text_maps_to_content?(control, patch)
+        patch["content"] = patch.delete("text")
+      end
+
+      # Keep runtime control tree aligned with incremental patches.
+      if patch.key?("controls")
+        control.children.clear
+        Array(patch["controls"]).each { |child| control.children << child if child.is_a?(Control) }
+      end
+
+      visited = Set.new
+      patch.each_value { |value| register_embedded_value(value, visited) }
+      patch.each { |k, v| control.props[k] = v }
+
+      patch_ops = patch.map { |k, v| [0, 0, k, serialize_patch_value(v)] }
+
+      send_message(Protocol::ACTIONS[:patch_control], {
+        "id" => wire_id,
+        "patch" => [[0], *patch_ops]
+      })
+
+      self
+    end
+
+    def patch_page(control_id, **props)
+      update(control_id, **props)
+    end
+
+    def apply_client_update(control_or_id, props)
+      control = resolve_control(control_or_id)
+      return self unless control
+
+      patch = normalize_props(props || {})
+      patch.each { |k, v| control.props[k] = v }
+
+      self
+    end
+
+    def dispatch_event(target:, name:, data:)
+      if page_control_target?(target)
+        if name.to_s == "route_change"
+          route_from_event = extract_route(data)
+          # Dialogs (including pickers) belong to the view that opened them.
+          # Navigating away must dismiss them, or they ghost onto the next
+          # view — the picker that "reappears after going home".
+          dismiss_tracked_dialogs! if route_from_event && route_from_event != @page_props["route"]
+          @page_props["route"] = route_from_event if route_from_event
+        elsif name.to_s == "resize"
+          # The client reports the live page size via the "resize" event. Store
+          # it so `page.width`/`page.height` reflect the real viewport — without
+          # this, responsive layouts collapse on clients (e.g. embedded/iOS)
+          # that don't know their size at the initial handshake.
+          store_reported_page_size(data)
+        end
+        dispatch_page_event(name: name, data: data)
+        return
+      end
+
+      control = @wire_index[target.to_i] || @control_index[target.to_s]
+      return unless control
+
+      event = Ruflet::Event.new(name: name, target: target, raw_data: data, page: self, control: control)
+      apply_event_value_to_control(control, event) if %w[change select select_change].include?(name.to_s)
+      # Material/Cupertino pickers dismiss themselves on the client once a
+      # value is confirmed, but only send a value event — never a close. Mark
+      # the dialog closed here so show_dialog can reopen it next time.
+      mark_picker_dialog_closed(control, name)
+      if dialog_close_event?(control, name) && remove_dialog_tracking(control)
+        # Patch the container in place; never force a full view re-render that
+        # would remount a still-open parent dialog (the nested-picker case).
+        push_dialogs_update!
+      end
+
+      control.emit(name, event)
+    end
+
+    def method_missing(name, *args, &block)
+      method_name = name.to_s
+      prop_name = method_name.delete_suffix("=")
+
+      if method_name.end_with?("=")
+        if widget_helper_method?(prop_name)
+          raise NoMethodError, "Use `#{prop_name}(...)` as a free widget helper, then attach with `page.add(...)`."
+        end
+        assign_split_prop(prop_name, normalize_value(prop_name, args.first))
+        return args.first
+      end
+
+      if args.empty? && !block
+        return @page_props[method_name] if @page_props.key?(method_name)
+        return @view_props[method_name] if @view_props.key?(method_name)
+        return instance_variable_get("@#{method_name}") if DIALOG_PROP_KEYS.include?(method_name)
+      end
+
+      if widget_helper_method?(name)
+        raise NoMethodError, "Use `#{name}(...)` as a free widget helper, then attach with `page.add(...)`."
+      end
+
+      super
+    end
+
+    def respond_to_missing?(name, include_private = false)
+      method_name = name.to_s
+      prop_name = method_name.delete_suffix("=")
+      widget_helper_method?(name) ||
+        widget_helper_method?(prop_name) ||
+        method_name.end_with?("=") ||
+        @page_props.key?(method_name) ||
+        @view_props.key?(method_name) ||
+        DIALOG_PROP_KEYS.include?(method_name) ||
+        super
+    end
+
+    private
+
+    def client_reported_prop(name)
+      return @page_props[name] if @page_props.key?(name)
+
+      @client_details[name]
+    end
+
+    def embedded_async_timeout_available?
+      !Object.const_defined?(:RUFLET_EMBEDDED_FAKE_THREAD)
+    end
+
+    def invoke_and_wait(control_or_id, method_name, args: nil, timeout: 10)
+      control_id =
+        if page_control_target?(control_or_id)
+          1
+        else
+          control = resolve_control(control_or_id)
+          return nil unless control
+          control.wire_id
+        end
+
+      call_id = "call_#{Ruflet::Control.generate_id}"
+      waiter = Queue.new
+      @invoke_waiters_mutex.synchronize { @invoke_waiters[call_id] = waiter }
+
+      send_message(Protocol::ACTIONS[:invoke_control_method], {
+        "control_id" => control_id,
+        "call_id" => call_id,
+        "name" => method_name.to_s,
+        "args" => args,
+        "timeout" => timeout
+      })
+
+      response = Timeout.timeout(timeout.to_f) { waiter.pop }
+      error = response["error"]
+      raise RuntimeError, error if error && !error.to_s.empty?
+
+      response["result"]
+    ensure
+      @invoke_waiters_mutex.synchronize { @invoke_waiters.delete(call_id) } if call_id
+    end
+
+    def build_widget(type, **props, &block) = WidgetBuilder.new.control(type, **props, &block)
+
+    def compact_service_args(hash)
+      hash.each_with_object({}) do |(key, value), result|
+        result[key] = normalize_service_value(value) unless value.nil?
+      end
+    end
+
+    def normalize_service_value(value)
+      case value
+      when Array
+        value.map { |item| normalize_service_value(item) }
+      when Hash
+        value.transform_keys(&:to_s).each_with_object({}) do |(key, item), result|
+          next if item.nil?
+
+          result[key] = key == "data" && byte_array?(item) ? item.pack("C*").b : normalize_service_value(item)
+        end
+      else
+        value
+      end
+    end
+
+    def normalize_share_files(files)
+      return nil if files.nil?
+
+      Array(files).map { |file| normalize_share_file(file) }
+    end
+
+    def normalize_share_file(file)
+      case file
+      when nil
+        nil
+      when String
+        { "path" => file }
+      else
+        normalize_service_value(file)
+      end
+    end
+
+    def byte_array?(value)
+      value.is_a?(Array) && value.all? { |item| item.is_a?(Integer) && item.between?(0, 255) }
+    end
+
+    def widget_helper_method?(name)
+      WIDGET_HELPER_METHODS.include?(name.to_s)
+    end
+
+    def visual_service_type?(type)
+      type.to_s.delete("_") == "camera"
+    end
+
+    def text_maps_to_content?(control, patch)
+      patch.key?("text") && control.type.end_with?("button")
+    end
+
+    def split_props(props)
+      props.each do |k, v|
+        assign_split_prop(k, v)
+      end
+    end
+
+    def send_message(action, payload)
+      @sender.call(action, payload)
+    end
+
+    def update_view_slot(name, value)
+      if value.nil?
+        @view_props.delete(name)
+      else
+        @view_props[name] = value
+      end
+    end
+
+    def send_view_patch
+      refresh_control_indexes!
+      view_patches = build_view_patches
+      page_patch_ops = build_page_patch_ops
+
+      send_message(Protocol::ACTIONS[:patch_control], {
+        "id" => 1,
+        "patch" => [
+          [0],
+          *page_patch_ops,
+          [0, 0, "views", view_patches]
+        ]
+      })
+      @overlay_container_mounted = true if @overlay_container.wire_id
+      @dialogs_container_mounted = true if @dialogs_container.wire_id
+      @services_container_mounted = true if @services_container.wire_id
+    end
+
+    def register_control_tree(control, visited = Set.new)
+      return unless control
+      return if visited.include?(control.object_id)
+
+      visited << control.object_id
+      assign_wire_id(control)
+      control.runtime_page = self if control.respond_to?(:runtime_page=)
+      @control_index[control.id.to_s] = control
+      @wire_index[control.wire_id] = control
+      control.children.each { |child| register_control_tree(child, visited) }
+      control.props.each_value { |value| register_embedded_value(value, visited) }
+    end
+
+    def implicit_view_patch
+      view_patch = {
+        "_c" => "View",
+        "_i" => @view_id,
+        "route" => (@page_props["route"] || @client_details["route"] || "/"),
+        # Required by Flet layout engine so children with `expand` inside View
+        # are wrapped with Expanded/Flexible on the Flutter side.
+        "_internals" => { "host_expanded" => true }
+      }
+      @view_props.each { |k, v| view_patch[k] = serialize_patch_value(v) }
+      view_patch["controls"] = @root_controls.map(&:to_patch)
+      view_patch
+    end
+
+    def refresh_control_indexes!
+      @control_index.clear
+      @wire_index.clear
+      visited = Set.new
+
+      if @views.any?
+        @views.each { |view| register_control_tree(view, visited) }
+      else
+        @root_controls.each { |control| register_control_tree(control, visited) }
+        @view_props.each_value { |value| register_embedded_value(value, visited) }
+      end
+      @page_props.each_value { |value| register_embedded_value(value, visited) }
+    end
+
+    def register_embedded_value(value, visited)
+      case value
+      when Control
+        register_control_tree(value, visited)
+      when Array
+        value.each { |v| register_embedded_value(v, visited) }
+      when Hash
+        value.each_value { |v| register_embedded_value(v, visited) }
+      end
+    end
+
+    def assign_wire_id(control)
+      return if control.wire_id
+
+      control.wire_id = @next_wire_id
+      @next_wire_id += 1
+    end
+
+    def resolve_control(control_or_id)
+      if control_or_id.respond_to?(:wire_id)
+        control_or_id
+      elsif control_or_id.to_s.match?(/^\d+$/)
+        @wire_index[control_or_id.to_i]
+      else
+        @control_index[control_or_id.to_s]
+      end
+    end
+
+    def normalize_props(hash)
+      hash.each_with_object({}) do |(k, v), result|
+        key = k.to_s
+        key = "controls" if key == "children"
+        result[key] = normalize_value(key, v)
+      end
+    end
+
+    def normalize_value(key, value)
+      if icon_prop_key?(key)
+        return normalize_icon_name(value.value) if value.is_a?(Ruflet::IconData)
+        return normalize_icon_name(value.to_s) if value.is_a?(String) || value.is_a?(Symbol)
+        return value if value.is_a?(Ruflet::Control)
+        return value if value.nil?
+
+        raise ArgumentError, "page #{key} must use an icon name string, not #{value.inspect}"
+      end
+
+      return value.value if value.is_a?(Ruflet::IconData)
+      value.is_a?(Symbol) ? value.to_s : value
+    end
+
+    def normalize_icon_name(value)
+      codepoint = Ruflet::MaterialIconLookup.codepoint_for(value)
+      codepoint = Ruflet::CupertinoIconLookup.codepoint_for(value) if codepoint.nil?
+      return codepoint unless codepoint.nil?
+
+      raise ArgumentError, "page icon must use a known icon name, not #{value.inspect}"
+    end
+
+    def build_route(route, query_params = {})
+      base = route.to_s
+      return base if query_params.nil? || query_params.empty?
+
+      query = query_params.map { |k, v| "#{CGI.escape(k.to_s)}=#{CGI.escape(v.to_s)}" }.join("&")
+      separator = base.include?("?") ? "&" : "?"
+      "#{base}#{separator}#{query}"
+    end
+
+    def parse_query(route_value)
+      query_string = route_value.to_s.split("?", 2)[1].to_s
+      return {} if query_string.empty?
+
+      CGI.parse(query_string).each_with_object({}) do |(key, values), result|
+        result[key] = values.size == 1 ? values.first : values
+      end
+    end
+
+    def extract_route(data)
+      case data
+      when String
+        data
+      when Hash
+        data["route"] || data[:route]
+      else
+        nil
+      end
+    end
+
+    def store_reported_page_size(data)
+      return unless data.is_a?(Hash)
+
+      width = data["width"] || data[:width]
+      height = data["height"] || data[:height]
+      @page_props["width"] = width unless width.nil?
+      @page_props["height"] = height unless height.nil?
+    end
+
+    def dispatch_page_event(name:, data:)
+      handler = @page_event_handlers[name.to_s.sub(/\Aon_/, "")]
+      return unless handler.respond_to?(:call)
+
+      event = Ruflet::Event.new(name: name.to_s, target: 1, raw_data: data, page: self, control: nil)
+      handler.call(event)
+    end
+
+    def apply_event_value_to_control(control, event)
+      return unless event.typed_data && event.typed_data.respond_to?(:value)
+
+      value = event.typed_data.value
+      if control.props.key?("start_value") && control.props.key?("end_value")
+        raw = event.typed_data.respond_to?(:raw) ? event.typed_data.raw : event.data
+        range_value = value.is_a?(Hash) ? value : raw
+        if range_value.is_a?(Hash)
+          start_value = range_value["start_value"] || range_value[:start_value]
+          end_value = range_value["end_value"] || range_value[:end_value]
+          control.props["start_value"] = start_value unless start_value.nil?
+          control.props["end_value"] = end_value unless end_value.nil?
+        end
+        return
+      end
+
+      return if value.nil?
+      return if control.type == "selectionarea"
+
+      prop_name =
+        if event.name == "select"
+          control.props.key?("value") ? "value" : "selected"
+        elsif event.name == "select_change" && control.props.key?("selected")
+          "selected"
+        elsif control.props.key?("expanded")
+          "expanded"
+        elsif control.props.key?("selected")
+          "selected"
+        elsif control.props.key?("selected_index")
+          "selected_index"
+        else
+          "value"
+        end
+      control.props[prop_name] = value
+    end
+
+    def page_control_target?(control_or_id)
+      control_or_id == 1 || control_or_id.to_s == "1" || control_or_id.to_s == "page"
+    end
+
+    def serialize_patch_value(value)
+      case value
+      when Control
+        value.to_patch
+      when Ruflet::IconData
+        value.value
+      when Array
+        value.map { |v| serialize_patch_value(v) }
+      when Hash
+        value.each_with_object({}) { |(k, v), result| result[k.to_s] = serialize_patch_value(v) }
+      else
+        value
+      end
+    end
+
+    def icon_prop_key?(key)
+      key == "icon" || key.end_with?("_icon")
+    end
+
+    def refresh_dialogs_container!
+      dialog_controls = (dialog_slots + @dialogs).uniq
+      @dialogs_container.props["controls"] = dialog_controls
+      @page_props["_dialogs"] = @dialogs_container
+    end
+
+    def refresh_overlay_container!
+      @page_props["_overlay"] = @overlay_container
+    end
+
+    def refresh_services_container!
+      @page_props["_services"] = @services_container
+    end
+
+    def push_services_update!
+      refresh_control_indexes!
+
+      if @services_container.wire_id
+        send_message(Protocol::ACTIONS[:patch_control], {
+          "id" => @services_container.wire_id,
+          "patch" => [[0], [0, 0, "_services", serialize_patch_value(@services_container.props["_services"])]]
+        })
+      else
+        send_view_patch
+      end
+    end
+
+    def push_dialogs_update!
+      refresh_control_indexes!
+
+      # Once the dialogs container is mounted, every change — opening, closing,
+      # even down to no dialogs at all — is an in-place patch of its controls
+      # list. Re-sending the view (or the container as a whole object) would
+      # replace the live container instance on the Flutter side, detaching its
+      # listeners and breaking any other dialog still open. Only the very first
+      # dialog, before the container has a wire id, needs a view patch to mount.
+      if @dialogs_container.wire_id
+        send_message(Protocol::ACTIONS[:patch_control], {
+          "id" => @dialogs_container.wire_id,
+          "patch" => [[0], [0, 0, "controls", serialize_patch_value(@dialogs_container.props["controls"])]]
+        })
+      else
+        send_view_patch
+      end
+    end
+
+    def dialog_slots
+      [@dialog, @snack_bar, @bottom_sheet].compact
+    end
+
+    def latest_open_dialog
+      @dialogs.reverse.find { |d| d.props["open"] != false }
+    end
+
+    def dialog_open?(dialog_control)
+      @dialogs.include?(dialog_control) && dialog_control.props["open"] == true
+    end
+
+    def dialog_close_event?(control, name)
+      name = name.to_s
+      name == "dismiss" || (%w[change select select_change].include?(name) && @dialogs.include?(control) && control.props["open"] == false)
+    end
+
+    # Picker dialogs that auto-dismiss on the client after a selection. Their
+    # confirm sends a value event (change/select), not a close, so the server
+    # must flip `open` to false or show_dialog's open-guard blocks reopening.
+    PICKER_DIALOG_TYPES = %w[
+      datepicker daterangepicker timepicker
+      cupertinodatepicker cupertinotimerpicker
+    ].freeze
+
+    def picker_dialog?(control)
+      PICKER_DIALOG_TYPES.include?(control.type.to_s.tr("_", "").downcase)
+    end
+
+    def mark_picker_dialog_closed(control, name)
+      return unless picker_dialog?(control)
+      return unless %w[change select select_change dismiss].include?(name.to_s)
+
+      control.props["open"] = false
+    end
+
+    # Close and untrack every dialog currently shown. Called on navigation so
+    # a dialog opened in one view does not linger as an overlay on the next.
+    def dismiss_tracked_dialogs!
+      return if @dialogs.empty?
+
+      @dialogs.each { |dialog| dialog.props["open"] = false }
+      @dialogs.clear
+      refresh_dialogs_container!
+      push_dialogs_update! if @dialogs_container_mounted
+    end
+
+    def remove_dialog_tracking(control)
+      return false unless @dialogs.include?(control)
+
+      @dialogs.delete(control)
+      refresh_dialogs_container!
+      true
+    end
+
+    def remove_existing_singleton_dialogs(control)
+      return unless singleton_dialog_control?(control)
+
+      @dialogs.delete_if { |dialog| dialog != control && singleton_dialog_control?(dialog) }
+    end
+
+    def singleton_dialog_control?(control)
+      control.type.to_s.tr("_", "").downcase == "snackbar"
+    end
+
+    def assign_split_prop(key, value)
+      if key == "vertical_alignment" || key == "horizontal_alignment"
+        @page_props[key] = value
+        @view_props[key] = value
+      elsif DIALOG_PROP_KEYS.include?(key)
+        instance_variable_set("@#{key}", value)
+        refresh_dialogs_container!
+      elsif PAGE_PROP_KEYS.include?(key)
+        @page_props[key] = value
+      else
+        @view_props[key] = value
+      end
+    end
+
+    def build_view_patches
+      if @views.any?
+        @views.map(&:to_patch)
+      else
+        [implicit_view_patch]
+      end
+    end
+
+    def build_page_patch_ops
+      @page_props.filter_map do |k, v|
+        # Keep internal containers stable after initial mount.
+        # Re-sending them as full objects can replace Control instances with
+        # same IDs and detach service invoke listeners on the Flutter side.
+        next nil if k == "_overlay" && @overlay_container_mounted
+        next nil if k == "_dialogs" && @dialogs_container_mounted
+        next nil if k == "_services" && @services_container_mounted
+
+        [0, 0, k, serialize_patch_value(v)]
+      end
+    end
+
+    def service_by_type(type)
+      compact_type = type.to_s.downcase.delete("_")
+      services.find do |service|
+        service.is_a?(Control) && service.type.to_s.downcase.delete("_") == compact_type
+      end
+    end
+
+    def service_with_created(type)
+      existing = service_by_type(type)
+      return [existing, false] if existing
+
+      # `service` already syncs via add_service -> push_services_update!.
+      [service(type), true]
+    end
+
+    def ensure_clipboard_service
+      service_with_created(:clipboard)
+    end
+
+    def invoke_clipboard_method(method_name, args: nil, timeout:, on_result:)
+      clipboard, = ensure_clipboard_service
+      invoke(
+        clipboard,
+        method_name,
+        args: args,
+        timeout: timeout,
+        on_result: on_result
+      )
+    rescue StandardError => e
+      on_result&.call(nil, e.message)
+    end
+
+    def ensure_url_launcher_service
+      service(:url_launcher)
+    end
+
+    def ensure_browser_context_menu_service
+      service(:browser_context_menu)
+    end
+
+    def invoke_browser_context_menu(method_name, timeout:, on_result:)
+      browser_context_menu = ensure_browser_context_menu_service
+      invoke(browser_context_menu, method_name, timeout: timeout, on_result: on_result)
+    end
+
+    def ensure_window_service
+      service(:window)
+    end
+
+    def invoke_window(method_name, args: nil, timeout:, on_result:)
+      window = ensure_window_service
+      invoke(window, method_name, args: args, timeout: timeout, on_result: on_result)
+    end
+
+    def ensure_tester_service
+      service(:tester)
+    end
+
+    def invoke_tester(method_name, args: nil, timeout:, on_result:)
+      tester = ensure_tester_service
+      invoke(tester, method_name, args: args, timeout: timeout, on_result: on_result)
+    end
+
+    def invoke_tester_finder(method_name, finder_id, finder_index:, timeout:, on_result:)
+      invoke_tester(
+        method_name,
+        args: compact_service_args("finder_id" => finder_id, "finder_index" => finder_index),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def invoke_tester_at(method_name, offset, timeout:, on_result:)
+      invoke_tester(
+        method_name,
+        args: compact_service_args("offset" => offset),
+        timeout: timeout,
+        on_result: on_result
+      )
+    end
+
+    def ensure_haptic_feedback_service
+      service(:haptic_feedback)
+    end
+
+    def invoke_haptic_feedback(method_name, timeout:, on_result:)
+      haptic_feedback = ensure_haptic_feedback_service
+      invoke(haptic_feedback, method_name, timeout: timeout, on_result: on_result)
+    end
+
+    def invoke_current_view(method_name, timeout:, on_result:)
+      target_id = @views.last&.wire_id || @view_id
+      invoke_control_id(target_id, method_name, timeout: timeout, on_result: on_result)
+    end
+
+    def invoke_control_id(control_id, method_name, args: nil, timeout: 10, on_result: nil)
+      call_id = "call_#{Ruflet::Control.generate_id}"
+      if on_result.respond_to?(:call)
+        @invoke_waiters_mutex.synchronize { @invoke_callbacks[call_id] = on_result }
+        if embedded_async_timeout_available? && !timeout.nil?
+          Thread.new(call_id, timeout.to_f) do |pending_call_id, invoke_timeout|
+            sleep([invoke_timeout, 0.0].max + 0.1)
+            callback = @invoke_waiters_mutex.synchronize { @invoke_callbacks.delete(pending_call_id) }
+            callback&.call(nil, "execution expired")
+          rescue StandardError => e
+            Kernel.warn("invoke timeout callback error: #{e.class}: #{e.message}")
+          end
+        end
+      end
+
+      payload = {
+        "control_id" => control_id,
+        "call_id" => call_id,
+        "name" => method_name.to_s,
+        "args" => args
+      }
+      payload["timeout"] = timeout unless timeout.nil?
+      send_message(Protocol::ACTIONS[:invoke_control_method], payload)
+
+      call_id
+    end
+
+    def ensure_connectivity_service
+      service_with_created(:connectivity)
+    end
+
+    def invoke_connectivity_method(method_name, timeout:, on_result:)
+      connectivity, = ensure_connectivity_service
+      invoke(
+        connectivity,
+        method_name,
+        timeout: timeout,
+        on_result: on_result
+      )
+    rescue StandardError => e
+      on_result&.call(nil, e.message)
+    end
+
+    def ensure_battery_service
+      service_with_created(:battery)
+    end
+
+    def ensure_share_service
+      service(:share)
+    end
+
+    def ensure_shared_preferences_service
+      service(:shared_preferences)
+    end
+
+    def invoke_shared_preferences(method_name, args: nil, timeout:, on_result:)
+      shared_preferences = ensure_shared_preferences_service
+      invoke(shared_preferences, method_name, args: args, timeout: timeout, on_result: on_result)
+    end
+
+    def ensure_wakelock_service
+      service(:wakelock)
+    end
+
+    def invoke_wakelock(method_name, timeout:, on_result:)
+      wakelock = ensure_wakelock_service
+      invoke(wakelock, method_name, timeout: timeout, on_result: on_result)
+    end
+
+    def ensure_flashlight_service
+      service(:flashlight)
+    end
+
+    def invoke_flashlight(method_name, timeout:, on_result:)
+      flashlight = ensure_flashlight_service
+      invoke(flashlight, method_name, timeout: timeout, on_result: on_result)
+    end
+
+    def ensure_screen_brightness_service
+      service(:screen_brightness)
+    end
+
+    def invoke_screen_brightness(method_name, args: nil, timeout:, on_result:)
+      screen_brightness = ensure_screen_brightness_service
+      invoke(screen_brightness, method_name, args: args, timeout: timeout, on_result: on_result)
+    end
+
+    def invoke_battery_method(method_name, timeout:, on_result:)
+      battery, = ensure_battery_service
+      invoke(
+        battery,
+        method_name,
+        timeout: timeout,
+        on_result: on_result
+      )
+    rescue StandardError => e
+      on_result&.call(nil, e.message)
+    end
+
+    def ensure_storage_paths_service
+      service_with_created(:storage_paths)
+    end
+
+    def invoke_storage_paths(method_name, timeout:, on_result:)
+      storage_paths, = ensure_storage_paths_service
+      invoke(
+        storage_paths,
+        method_name,
+        timeout: timeout,
+        on_result: on_result
+      )
+    rescue StandardError => e
+      on_result&.call(nil, e.message)
+    end
+
+    def invoke_file_picker(method_name, args, timeout:, on_result:)
+      picker = service(:file_picker)
+      invoke(
+        picker,
+        method_name,
+        args: args,
+        timeout: timeout,
+        on_result: on_result
+      )
+    rescue StandardError => e
+      on_result&.call(nil, e.message)
+    end
+  end
+end

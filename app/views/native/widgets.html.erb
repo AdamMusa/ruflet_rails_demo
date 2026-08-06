@@ -1,0 +1,58 @@
+<%# The component gallery — every native control, straight from Rails. %>
+<%= appbar "Widgets" %>
+
+<%= column class: "p-6 gap-5" do %>
+  <%= h2 "The component catalog" %>
+
+  <%= text "Badge & tooltip", class: "text-sm text-slate-500" %>
+  <%= row class: "gap-6 items-center" do %>
+    <%= badge "3" do %><%= icon "notifications", class: "text-slate-700" %><% end %>
+    <%= tooltip "Needs attention" do %><%= icon "help", class: "text-slate-700" %><% end %>
+    <%= avatar "AM" %>
+  <% end %>
+
+  <%= text "List tiles", class: "text-sm text-slate-500" %>
+  <%= card do %>
+    <%= list_tile title: "Inbox", subtitle: "12 unread", leading: "mail", href: native_home_path %>
+    <%= list_tile title: "Starred", subtitle: "3 items", leading: "star", href: native_home_path %>
+  <% end %>
+
+  <%= text "Segmented button & radio group", class: "text-sm text-slate-500" %>
+  <%= segmented_button "view", value: "list",
+        segments: [{ value: "list", label: "List", icon: "view_list" },
+                   { value: "grid", label: "Grid", icon: "grid_view" }] %>
+  <%= radio_group "plan", value: "pro" do %>
+    <%= radio value: "free", label: "Free" %>
+    <%= radio value: "pro", label: "Pro" %>
+  <% end %>
+
+  <%= text "Switch, slider & chips", class: "text-sm text-slate-500" %>
+  <%= switch label: "Dark mode" %>
+  <%= slider min: 0, max: 100, value: 30 %>
+  <%= row class: "gap-2" do %>
+    <%= chip "Ruby" %>
+    <%= chip "Rails" %>
+    <%= chip "Flutter" %>
+  <% end %>
+
+  <%= text "Expansion tile", class: "text-sm text-slate-500" %>
+  <%= expansion_tile "How does this work?" do %>
+    <%= text "Every screen is a Rails view rendered as real native controls.", class: "p-4 text-slate-600" %>
+  <% end %>
+
+  <%= text "data table", class: "text-sm text-slate-500" %>
+  <table>
+    <thead><tr><th>Name</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td>Ada</td><td>Engineer</td></tr>
+      <tr><td>Alan</td><td>Mathematician</td></tr>
+    </tbody>
+  </table>
+
+  <%= text "Progress & rich text", class: "text-sm text-slate-500" %>
+  <%= progress value: 0.6 %>
+  <%= markdown "**Bold**, *italic* and formatted text all work." %>
+<% end %>
+
+<%# A floating action button mounts on the screen like the app bar. %>
+<%= fab icon: "add", href: native_form_path %>

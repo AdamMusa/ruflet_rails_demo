@@ -1,0 +1,6 @@
+<%= share %>
+<%= text "Share ready", id: "share-status", class: "text-sm text-slate-500 selectable" %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <%= button "Share text", service: "share-text", text: "Hello from Ruflet!", title: "Share greeting", subject: "Greeting", result_target: "share-status" %>
+  <%= button "Share link", service: "share-uri", uri: "https://ruflet.dev", result_target: "share-status" %>
+<% end %>

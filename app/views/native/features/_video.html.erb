@@ -1,0 +1,16 @@
+<%= text "Video ready", id: "video-status", class: "text-sm text-slate-500 selectable" %>
+<%= container class: "h-56" do %>
+  <%= video id: "studio-video", width: 320, height: 180, aspect_ratio: 1.7777778,
+            playlist: [
+              { resource: "https://user-images.githubusercontent.com/28951144/229373720-14d69157-1a56-4a78-a2f4-d7a134d7c3e9.mp4" },
+              { resource: "https://user-images.githubusercontent.com/28951144/229373718-86ce5e1d-d195-45d5-baa6-ef94041d0b90.mp4" }
+            ], playlist_mode: "loop", autoplay: false, volume: 100, playback_rate: 1.0,
+            on_loaded_target: "video-status", on_loaded_message: "Video loaded",
+            on_completed_target: "video-status", on_completed_message: "Video completed",
+            on_error_target: "video-status", on_error_prefix: "Video error: " %>
+<% end %>
+<%= row class: "gap-2 flex-wrap" do %>
+  <% [["Play", "play", nil], ["Pause", "pause", nil], ["Play/Pause", "play_or_pause", nil], ["Stop", "stop", nil], ["Next", "next", nil], ["Prev", "previous", nil], ["Seek 10s", "seek", { position: 10_000 }]].each do |label, method, args| %>
+    <%= button label, service: "control", target: "studio-video", method: method, args: args, result_target: "video-status" %>
+  <% end %>
+<% end %>

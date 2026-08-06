@@ -1,0 +1,13 @@
+<%# h-full so the screen owns the whole viewport: examples with a preview,
+    a map or a player can expand into it instead of sitting in a strip at the
+    top with dead space underneath. %>
+<%= appbar @feature_title %>
+
+<% body_class = case @feature
+                when "webview", "map" then "h-full items-stretch"
+                when "spinkit" then "p-6 gap-4 h-full overflow-y-auto"
+                else "p-6 gap-4 h-full"
+                end %>
+<%= column class: body_class do %>
+  <%= render partial: "native/features/#{@feature}" %>
+<% end %>

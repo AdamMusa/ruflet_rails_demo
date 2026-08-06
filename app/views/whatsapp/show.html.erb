@@ -1,0 +1,26 @@
+<%# Chat conversation. The outer column is flex-1 so the screen fills the
+    viewport: the message list expands and scrolls, the composer stays pinned. %>
+<%= appbar @contact[:name], class: "bg-emerald-600", leading_icon: "arrow_back", leading_href: whatsapp_path do %>
+  <%= appbar_action "call", whatsapp_conversation_path(@id) %>
+  <%= appbar_action "more_vert", whatsapp_conversation_path(@id) %>
+<% end %>
+
+<%= column class: "flex-1 bg-slate-100" do %>
+  <%= list class: "flex-1 p-3 gap-2", auto_scroll: true do %>
+    <% @messages.each do |who, body| %>
+      <% mine = who == "me" %>
+      <%= row class: (mine ? "justify-end" : "justify-start") do %>
+        <%= container class: "#{mine ? 'bg-emerald-100' : 'bg-white'} rounded-2xl px-3 py-2 shadow" do %>
+          <%= text body, class: "text-slate-900" %>
+        <% end %>
+      <% end %>
+    <% end %>
+  <% end %>
+
+  <form action="<%= whatsapp_messages_path(@id) %>" method="post">
+    <%= row class: "gap-2 items-center p-2 bg-white" do %>
+      <%= input "body", placeholder: "Message", class: "flex-1" %>
+      <%= button nil, icon: "send", variant: "filled" %>
+    <% end %>
+  </form>
+<% end %>

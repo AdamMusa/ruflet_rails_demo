@@ -1,0 +1,21 @@
+<%= appbar "Device & Media" %>
+
+<%= column class: "p-6 gap-4" do %>
+  <%= h2 "Services" %>
+  <%= text "Each example opens on its own screen and mounts only the service it uses, matching Ruflet Studio.",
+           class: "text-sm text-slate-500" %>
+  <%= column class: "gap-1" do %>
+    <% ApplicationHelper::NATIVE_SERVICE_FEATURES.each do |slug, title, icon_name| %>
+      <%= native_feature_link slug, title, icon_name %>
+    <% end %>
+  <% end %>
+
+  <%= h2 "Extensions" %>
+  <%= text "Visible native extension controls, rendered directly rather than inside collapsed panels.",
+           class: "text-sm text-slate-500" %>
+  <%= column class: "gap-1" do %>
+    <% ApplicationHelper::NATIVE_EXTENSION_FEATURES.each do |slug, title, icon_name| %>
+      <%= native_feature_link slug, title, icon_name %>
+    <% end %>
+  <% end %>
+<% end %>
