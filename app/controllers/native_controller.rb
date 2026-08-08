@@ -26,17 +26,14 @@ class NativeController < ApplicationController
     @count = session[:count] ||= 0
   end
 
-  # Post/Redirect/Get is for browsers with a reload button. The native client
-  # has neither, so redirecting just makes the session fetch the screen twice.
-  # Render it straight from the POST instead — one cycle per tap.
+  # A tap runs the method and the screen re-renders; there is nothing to
+  # redirect to and no second fetch to avoid.
   def counter_increment
     session[:count] = (session[:count] || 0) + 1
-    render_counter
   end
 
   def counter_decrement
     session[:count] = (session[:count] || 0) - 1
-    render_counter
   end
 
   def form; end
@@ -55,16 +52,10 @@ class NativeController < ApplicationController
   def device; end
 
   def device_feature
-    @feature = params[:feature].to_s
+    @feature = params[:id].to_s
     raise ActionController::RoutingError, "Unknown native feature" unless DEVICE_FEATURES.key?(@feature)
 
     @feature_title = DEVICE_FEATURES.fetch(@feature)
   end
 
-  private
-
-  def render_counter
-    @count = session[:count]
-    render_native :counter, else: -> { redirect_to native_counter_path }
-  end
 end

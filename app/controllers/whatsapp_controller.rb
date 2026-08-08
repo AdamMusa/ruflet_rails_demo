@@ -29,13 +29,13 @@ class WhatsappController < ApplicationController
 
   def show
     @id = params[:id]
-    @contact = CONTACTS.fetch(@id) { redirect_to(whatsapp_path) and return }
+    @contact = CONTACTS.fetch(@id) { redirect_to("/whatsapp") and return }
     @messages = threads[@id] || SEED[@id] || []
   end
 
   def create_message
     @id = params[:id]
-    return redirect_to(whatsapp_path) unless CONTACTS.key?(@id)
+    return redirect_to("/whatsapp") unless CONTACTS.key?(@id)
 
     body = params[:body].to_s.strip
     if body.present?
@@ -43,7 +43,7 @@ class WhatsappController < ApplicationController
       store[@id] = (store[@id] || SEED[@id] || []) + [["me", body]]
       session[:wa_threads] = store
     end
-    redirect_to whatsapp_conversation_path(@id)
+    redirect_to "/whatsapp/show/#{@id}"
   end
 
   private

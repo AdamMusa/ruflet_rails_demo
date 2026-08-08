@@ -26,7 +26,7 @@ module ApplicationHelper
       subtitle: "Open the Ruflet Studio example",
       leading: icon_name,
       trailing: "chevron_right",
-      href: native_device_feature_path(slug)
+      href: "/native/device_feature/#{slug}"
     )
   end
 
