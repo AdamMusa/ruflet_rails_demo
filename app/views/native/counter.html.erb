@@ -6,11 +6,11 @@
 
   <%= row class: "gap-4" do %>
     <%= button "Down", variant: "outlined", icon: "remove",
-               on_click: native_counter_decrement_path %>
+               on_click: "/native/counter/decrement" %>
     <%= button "Up", variant: "filled", icon: "add",
-               on_click: native_counter_increment_path %>
+               on_click: "/native/counter/increment" %>
   <% end %>
 
-  <%= text "The count lives in Rails — every tap is a request.",
+  <%= text "The count lives in Rails — every tap runs a controller method over the WebSocket.",
            class: "text-sm text-slate-400" %>
 <% end %>

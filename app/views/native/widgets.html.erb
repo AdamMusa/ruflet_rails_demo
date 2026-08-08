@@ -13,8 +13,8 @@
 
   <%= text "List tiles", class: "text-sm text-slate-500" %>
   <%= card do %>
-    <%= list_tile title: "Inbox", subtitle: "12 unread", leading: "mail", href: native_home_path %>
-    <%= list_tile title: "Starred", subtitle: "3 items", leading: "star", href: native_home_path %>
+    <%= list_tile title: "Inbox", subtitle: "12 unread", leading: "mail", href: "/native" %>
+    <%= list_tile title: "Starred", subtitle: "3 items", leading: "star", href: "/native" %>
   <% end %>
 
   <%= text "Segmented button & radio group", class: "text-sm text-slate-500" %>
@@ -55,4 +55,4 @@
 <% end %>
 
 <%# A floating action button mounts on the screen like the app bar. %>
-<%= fab icon: "add", href: native_form_path %>
+<%= fab icon: "add", href: "/native/form" %>

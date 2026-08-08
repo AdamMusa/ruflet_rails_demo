@@ -1,14 +1,14 @@
 <%# Chat app — chat list. Every row is a real native control; taps push the
     conversation, and the bottom bar switches tabs. %>
 <%= appbar "Chat", class: "bg-emerald-600",
-      leading_icon: "arrow_back", leading_href: native_home_path, leading_nav: "root" do %>
-  <%= appbar_action "search", whatsapp_path %>
-  <%= appbar_action "more_vert", whatsapp_path %>
+      leading_icon: "arrow_back", leading_href: "/native", leading_nav: "root" do %>
+  <%= appbar_action "search", "/whatsapp" %>
+  <%= appbar_action "more_vert", "/whatsapp" %>
 <% end %>
 
 <%= column class: "gap-0" do %>
   <% @contacts.each do |id, c| %>
-    <a href="<%= whatsapp_conversation_path(id) %>">
+    <a href="<%= "/whatsapp/show/#{id}" %>">
       <%= row class: "gap-3 items-center px-4 py-3" do %>
         <%= avatar c[:avatar], class: "#{c[:color]}" %>
         <%= column class: "gap-1 flex-1" do %>
@@ -31,6 +31,6 @@
   <% end %>
 <% end %>
 
-<%= fab icon: "chat", href: whatsapp_conversation_path("ada") %>
+<%= fab icon: "chat", href: "/whatsapp/show/#{"ada"}" %>
 
 <%= render "nav", active: "chats" %>
