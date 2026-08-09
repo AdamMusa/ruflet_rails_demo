@@ -1,7 +1,7 @@
 <%# A native form that posts to Rails. %>
 <%= appbar "Form" %>
 
-<form action="/native/form/submit" method="post">
+<form action="form_submit" method="post">
   <%= column class: "p-6 gap-4" do %>
     <%= h2 "Tell us about you" %>
     <%= input "name", label: "Name", placeholder: "Ada Lovelace" %>
