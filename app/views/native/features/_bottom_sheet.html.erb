@@ -1,6 +1,6 @@
 <%# Bottom sheet — same shape as the dialog: it is an ordinary control until
     its open property is set. %>
-<%= text "The sheet is closed.", id: "sheet-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "The sheet is closed.", id: "sheet-status", class: "text-sm text-slate-500 select-text" %>
 <%= button "Open bottom sheet", icon: "expand_less", service: "control", target: "demo-sheet",
            method: "update", open: "true" %>
 

@@ -1,6 +1,6 @@
 <%= container class: "p-6 pb-4" do %>
   <%= column class: "gap-4 items-stretch" do %>
-    <%= text "Map ready", id: "map-status", class: "text-sm text-slate-500 selectable" %>
+    <%= text "Map ready", id: "map-status", class: "text-sm text-slate-500 select-text" %>
     <%= row class: "gap-2 flex-wrap" do %>
       <%= button "Center", service: "control", target: "studio-map", method: "center_on", args: { point: { latitude: 51.505, longitude: -0.09 }, zoom: 13 }, result_target: "map-status" %>
       <%= button "Zoom in", service: "control", target: "studio-map", method: "zoom_in", result_target: "map-status" %>

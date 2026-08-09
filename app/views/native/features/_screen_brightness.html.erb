@@ -1,5 +1,5 @@
 <%= screen_brightness %>
-<%= text "Application brightness: -\nSystem brightness: -", id: "brightness-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "Application brightness: -\nSystem brightness: -", id: "brightness-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2 flex-wrap" do %>
   <%= button "Refresh", service: "brightness-get", result_target: "brightness-status" %>
   <%= button "System value", service: "brightness-system-get", result_target: "brightness-status" %>

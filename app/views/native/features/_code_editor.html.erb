@@ -1,4 +1,4 @@
-<%= text "Editor ready", id: "editor-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "Editor ready", id: "editor-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2" do %>
   <%= button "Editable", service: "control", target: "studio-editor", method: "update", args: { read_only: false }, result_target: "editor-status" %>
   <%= button "Read-only", service: "control", target: "studio-editor", method: "update", args: { read_only: true }, result_target: "editor-status" %>

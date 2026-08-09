@@ -1,7 +1,7 @@
 <%# Dialog — declared as markup with open="false", opened and closed by
     setting that same property, the way Studio's component-dialog does with
     page.update(dialog, open: …). %>
-<%= text "The dialog is closed.", id: "dialog-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "The dialog is closed.", id: "dialog-status", class: "text-sm text-slate-500 select-text" %>
 <%= button "Open dialog", icon: "chat_bubble", service: "control", target: "demo-dialog",
            method: "update", open: "true" %>
 

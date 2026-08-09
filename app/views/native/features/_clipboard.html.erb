@@ -1,5 +1,5 @@
 <%= clipboard %>
-<%= text "Clipboard ready", id: "clipboard-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "Clipboard ready", id: "clipboard-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2 flex-wrap" do %>
   <%= button "Copy sample text", service: "clipboard-set", text: "Hello from Ruflet", result_target: "clipboard-status" %>
   <%= button "Read clipboard text", service: "clipboard-get", result_target: "clipboard-status" %>

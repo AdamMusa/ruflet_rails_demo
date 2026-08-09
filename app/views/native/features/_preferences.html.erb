@@ -1,5 +1,5 @@
 <%= shared_preferences %>
-<%= text "Shared preferences ready", id: "preferences-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "Shared preferences ready", id: "preferences-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2 flex-wrap" do %>
   <%= button "Set", service: "prefs-set", key: "ruflet_demo", value: "Hello from Ruflet", result_target: "preferences-status" %>
   <%= button "Get", service: "prefs-get", key: "ruflet_demo", result_target: "preferences-status" %>

@@ -1,5 +1,5 @@
 <%= barometer on_reading_target: "sensor-status", on_reading_prefix: "Barometer: ", on_error_target: "sensor-status", on_error_prefix: "Barometer error: " %>
-<%= text "Waiting for barometer reading...", id: "sensor-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "Waiting for barometer reading...", id: "sensor-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2" do %>
   <%= button "Start", service: "barometer-start", interval: 1000, result_target: "sensor-status" %>
   <%= button "Stop", service: "barometer-stop", result_target: "sensor-status" %>

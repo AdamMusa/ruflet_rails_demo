@@ -1,5 +1,5 @@
 <%= semantics_service %>
-<%= text "Semantics service ready", id: "semantics-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "Semantics service ready", id: "semantics-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2 flex-wrap" do %>
   <%= button "Accessibility features", service: "semantics-features", result_target: "semantics-status" %>
   <%= button "Announce message", service: "semantics-announce", message: "Hello from Ruflet", result_target: "semantics-status" %>

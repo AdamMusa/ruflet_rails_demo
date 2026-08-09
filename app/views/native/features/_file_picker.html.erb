@@ -1,5 +1,5 @@
 <%= file_picker %>
-<%= text "File picker ready", id: "file-status", class: "text-sm text-slate-500 selectable" %>
+<%= text "File picker ready", id: "file-status", class: "text-sm text-slate-500 select-text" %>
 <%= row class: "gap-2 flex-wrap" do %>
   <%= button "Pick files", service: "pick-files", allow_multiple: true, result_target: "file-status" %>
   <%= button "Pick directory", service: "pick-directory", result_target: "file-status" %>
