@@ -11,7 +11,9 @@ FEATURES = NativeController::DEVICE_FEATURES.keys
 
 URLS = [
   "/native", "/native/counter", "/native/form", "/native/widgets", "/native/device",
-  *FEATURES.map { |slug| "/native/device/#{slug}" },
+  # every feature screen, from the controller's own list, so a screen added
+  # there cannot slip past this sweep
+  *FEATURES.map { |slug| "/native/device_feature/#{slug}" },
   "/whatsapp", "/whatsapp/status", "/whatsapp/calls", "/whatsapp/show/ada"
 ].freeze
 

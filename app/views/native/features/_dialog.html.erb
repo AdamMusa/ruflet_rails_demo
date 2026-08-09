@@ -3,7 +3,7 @@
     page.update(dialog, open: …). %>
 <%= text "The dialog is closed.", id: "dialog-status", class: "text-sm text-slate-500 selectable" %>
 <%= button "Open dialog", icon: "chat_bubble", service: "control", target: "demo-dialog",
-           method: "update", open: "true", %>
+           method: "update", open: "true" %>
 
 <alert-dialog id="demo-dialog" open="false" modal="true">
   <text>Hello world from a Ruflet dialog.</text>
