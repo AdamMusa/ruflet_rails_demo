@@ -31,11 +31,23 @@ unreachable = []
 NEEDS_PROPS = /\A(?:<[^>]+>\s*)?\S+ (?:requires|content is required)|missing keyword|must use a known icon/
 needs_props = []
 
+# Some tags need a particular child before they build anything: <tabs> is a
+# strip of <tab>s, and a bare one is legitimately empty.
+CHILDREN = {
+  "tabs" => '<tab label="One"><text>a</text></tab><tab label="Two"><text>b</text></tab>',
+  "cupertino_action_sheet" => '<cupertino-action-sheet-action><text>a</text></cupertino-action-sheet-action>'
+}.freeze
+
 registry.each do |type|
   tag = type.tr("_", "-")
-  html = "<#{tag}><text>content</text></#{tag}>"
+  inner = CHILDREN.fetch(type, "<text>content</text>")
+  html = "<#{tag}>#{inner}</#{tag}>"
   result = Ruflet::Rails::HtmlDsl::Transformer.new(handlers: NullHandlers.new).transform(html)
-  controls = Array(result.controls) + Array(result.services)
+  # Screen chrome never lands in the body: <appbar> becomes the view's AppBar,
+  # <fab> its floating button, <bottom-nav> its navigation bar. Reached is
+  # reached, wherever the transformer put it.
+  controls = Array(result.controls) + Array(result.services) +
+             [result.appbar, result.fab, result.bottom_nav].compact
   degraded = controls.any? do |control|
     props = control.respond_to?(:props) ? control.props : {}
     (props["value"] || props[:value]).to_s.start_with?("⚠")

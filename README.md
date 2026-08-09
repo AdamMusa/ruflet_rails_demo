@@ -83,9 +83,8 @@ bin/rails runner script/dsl_coverage.rb
 
 Walks the whole control registry and reports what markup can reach.
 
-Current state: **37/37 screens, 711 controls, 22 services, 0 degraded**, and 327
-of 329 registry controls reachable from markup (`appbar` becomes screen chrome
-and `tabs` needs `<tab>` children, so neither yields a body control alone).
+Current state: **41/41 screens, 707 controls, 22 services, 0 degraded**, and all
+329 registry controls reachable from markup.
 
 ## Gems
 
