@@ -17,7 +17,9 @@ module ApplicationHelper
     ["code_editor", "Code editor", "code"], ["audio", "Audio", "headphones"],
     ["video", "Video", "movie"], ["rive", "Rive", "animation"],
     ["camera", "Camera", "photo_camera"], ["map", "Map", "map"],
-    ["webview", "WebView", "language"]
+    ["webview", "WebView", "language"], ["dialog", "Dialog", "chat_bubble"],
+    ["bottom_sheet", "Bottom sheet", "expand_less"], ["date_picker", "Date picker", "event"],
+    ["time_picker", "Time picker", "schedule"]
   ].freeze
 
   def native_feature_link(slug, title, icon_name)

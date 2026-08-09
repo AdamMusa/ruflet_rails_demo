@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Renders every native screen through the real erb_to_native pipeline
-# (RackFetcher -> Parser -> Transformer) and reports what fails.
+# (TemplateSource -> Parser -> Transformer) and reports what fails.
 #
 #   bin/rails runner script/compile_screens.rb
 
@@ -12,7 +12,7 @@ FEATURES = NativeController::DEVICE_FEATURES.keys
 URLS = [
   "/native", "/native/counter", "/native/form", "/native/widgets", "/native/device",
   *FEATURES.map { |slug| "/native/device/#{slug}" },
-  "/wa", "/wa/status", "/wa/calls", "/wa/c/1"
+  "/whatsapp", "/whatsapp/status", "/whatsapp/calls", "/whatsapp/show/ada"
 ].freeze
 
 # Handlers only record; nothing here needs a live page or socket.
@@ -25,16 +25,16 @@ class RecordingHandlers
   def control_event(*) = nil
 end
 
-fetcher = Ruflet::Rails::HtmlDsl::RackFetcher.new
+fetcher = Ruflet::Rails::HtmlDsl::TemplateSource.new
 host = "http://localhost"
 failures = []
 totals = Hash.new(0)
 
 URLS.each do |path|
   url = "#{host}#{path}"
-  response = fetcher.fetch(:get, url)
-  unless response.status == 200
-    failures << [path, "HTTP #{response.status}"]
+  response = fetcher.fetch(url)
+  if response.body.to_s.include?("Screen failed") || response.body.to_s.include?("No screen for")
+    failures << [path, response.body.to_s[%r{<h3>([^<]*)</h3>}, 1] || "screen failed"]
     next
   end
 

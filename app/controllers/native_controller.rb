@@ -17,7 +17,9 @@ class NativeController < ApplicationController
     "magnetometer" => "Magnetometer", "barometer" => "Barometer",
     "spinkit" => "SpinKit", "charts" => "Charts",
     "code_editor" => "Code editor", "audio" => "Audio", "video" => "Video",
-    "rive" => "Rive", "camera" => "Camera", "map" => "Map", "webview" => "WebView"
+    "rive" => "Rive", "camera" => "Camera", "map" => "Map", "webview" => "WebView",
+    "dialog" => "Dialog", "bottom_sheet" => "Bottom sheet",
+    "date_picker" => "Date picker", "time_picker" => "Time picker"
   }.freeze
 
   def home; end

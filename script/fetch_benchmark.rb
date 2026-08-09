@@ -30,14 +30,14 @@ HOST = "http://localhost"
 T = Ruflet::Rails::HtmlDsl::Transformer
 
 # --- 1. cost of a screen ----------------------------------------------------
-fetcher = Ruflet::Rails::HtmlDsl::RackFetcher.new
+fetcher = Ruflet::Rails::HtmlDsl::TemplateSource.new
 %w[/native /native/widgets /wa].each do |path|
   url = "#{HOST}#{path}"
-  fetcher.fetch(:get, url) # warm the controller/view cache
+  fetcher.fetch(url) # warm the controller/view cache
 
   runs = 20
-  fetch_s = elapsed { runs.times { fetcher.fetch(:get, url) } } / runs
-  body = fetcher.fetch(:get, url).body
+  fetch_s = elapsed { runs.times { fetcher.fetch(url) } } / runs
+  body = fetcher.fetch(url).body
   transform_s = elapsed { runs.times { T.new(handlers: NullHandlers.new).transform(body) } } / runs
 
   puts format("%-18s fetch %5.2f ms   transform %5.2f ms   total %5.2f ms",
@@ -47,8 +47,8 @@ end
 # --- 2. per-session isolation ----------------------------------------------
 # Two fetchers stand in for two connected clients. Each POSTs the counter;
 # neither should see the other's count.
-a = Ruflet::Rails::HtmlDsl::RackFetcher.new
-b = Ruflet::Rails::HtmlDsl::RackFetcher.new
+a = Ruflet::Rails::HtmlDsl::TemplateSource.new
+b = Ruflet::Rails::HtmlDsl::TemplateSource.new
 
 count = lambda do |fetcher|
   body = fetcher.fetch(:get, "#{HOST}/native/counter").body
