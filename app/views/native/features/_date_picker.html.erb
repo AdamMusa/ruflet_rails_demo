@@ -1,11 +1,10 @@
-<%# Date picker — Studio's component-date-picker, in markup: the picker is a
-    control, opening it sets open, and on-change reports the chosen value. %>
+<%# Date picker — Studio's component-date-picker: the picker is a control,
+    opening it sets open, and on-change reports the chosen value. %>
 <%= text "Date: —", id: "date-value", class: "text-lg font-semibold text-slate-700 select-text" %>
 <%= button "Open date picker", icon: "event", service: "control", target: "demo-date-picker",
            method: "update", open: "true" %>
 
-<date-picker id="demo-date-picker" open="false"
-    value="2026-05-21" first-date="2026-01-01" last-date="2026-12-31"
-    help-text="Pick a date"
-    on-change-target="date-value" on-change-prefix="Date: ">
-</date-picker>
+<%= date_picker id: "demo-date-picker", value: "2026-05-21",
+                first_date: "2026-01-01", last_date: "2026-12-31",
+                help_text: "Pick a date",
+                on_change_target: "date-value", on_change_prefix: "Date: " %>

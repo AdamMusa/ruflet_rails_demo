@@ -1,14 +1,15 @@
-<%# Bottom sheet — same shape as the dialog: it is an ordinary control until
-    its open property is set. %>
+<%# Bottom sheet — same shape as the dialog: an ordinary control until its
+    open property is set. %>
 <%= text "The sheet is closed.", id: "sheet-status", class: "text-sm text-slate-500 select-text" %>
 <%= button "Open bottom sheet", icon: "expand_less", service: "control", target: "demo-sheet",
            method: "update", open: "true" %>
 
-<bottom-sheet id="demo-sheet" open="false">
-  <column class="p-6 gap-3">
-    <h4>Share this take</h4>
-    <text class="text-sm text-slate-500">A bottom sheet is a control that happens to slide up.</text>
-    <button service="control" target="demo-sheet" method="update" open="false"
-            variant="filled">Done</button>
-  </column>
-</bottom-sheet>
+<%= bottom_sheet id: "demo-sheet" do %>
+  <%= column class: "p-6 gap-3" do %>
+    <%= h4 "Share this take" %>
+    <%= text "A bottom sheet is a control that happens to slide up.",
+             class: "text-sm text-slate-500" %>
+    <%= button "Done", service: "control", target: "demo-sheet", method: "update",
+               open: "false", variant: "filled" %>
+  <% end %>
+<% end %>

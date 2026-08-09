@@ -1,12 +1,11 @@
-<%# Dialog — declared as markup with open="false", opened and closed by
-    setting that same property, the way Studio's component-dialog does with
-    page.update(dialog, open: …). %>
+<%# Dialog — a control like any other, opened and closed by setting its own
+    open property, the way Studio's component-dialog does. %>
 <%= text "The dialog is closed.", id: "dialog-status", class: "text-sm text-slate-500 select-text" %>
 <%= button "Open dialog", icon: "chat_bubble", service: "control", target: "demo-dialog",
            method: "update", open: "true" %>
 
-<alert-dialog id="demo-dialog" open="false" modal="true">
-  <text>Hello world from a Ruflet dialog.</text>
-  <button service="control" target="demo-dialog" method="update" open="false"
-          variant="text">Close</button>
-</alert-dialog>
+<%= alert_dialog id: "demo-dialog", modal: true do %>
+  <%= text "Hello world from a Ruflet dialog." %>
+  <%= button "Close", service: "control", target: "demo-dialog", method: "update",
+             open: "false", variant: "text" %>
+<% end %>

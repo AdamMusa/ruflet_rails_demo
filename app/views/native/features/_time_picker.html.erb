@@ -3,6 +3,5 @@
 <%= button "Open time picker", icon: "schedule", service: "control", target: "demo-time-picker",
            method: "update", open: "true" %>
 
-<time-picker id="demo-time-picker" open="false" value="09:41"
-             help-text="Pick a time"
-             on-change-target="time-value" on-change-prefix="Time: "></time-picker>
+<%= time_picker id: "demo-time-picker", value: "09:41", help_text: "Pick a time",
+                on_change_target: "time-value", on_change_prefix: "Time: " %>
