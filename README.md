@@ -86,7 +86,7 @@ bin/rails runner script/dsl_coverage.rb
 
 Walks the whole control registry and reports what markup can reach.
 
-Current state: **41/41 screens, 707 controls, 22 services, 0 degraded**, and all
+Current state: **41/41 screens, 689 controls, 22 services, 0 degraded**, and all
 329 registry controls reachable from markup.
 
 ## Gems

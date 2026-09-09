@@ -1,29 +1,3 @@
-PATH
-  remote: ../../FlutterApp/ruflet/packages/ruflet_core
-  specs:
-    ruflet_core (0.0.21)
-
-PATH
-  remote: ../../FlutterApp/ruflet/packages/ruflet_rails
-  specs:
-    ruflet_rails (0.0.16)
-      rails (>= 7.0)
-      ruflet (>= 0.0.21)
-      ruflet_core (>= 0.0.21)
-      ruflet_server (>= 0.0.21)
-
-PATH
-  remote: ../../FlutterApp/ruflet/packages/ruflet_server
-  specs:
-    ruflet_server (0.0.21)
-      ruflet_core (= 0.0.21)
-
-PATH
-  remote: ../../FlutterApp/ruflet/packages/ruflet
-  specs:
-    ruflet (0.0.21)
-      rqrcode (~> 2.2)
-
 GEM
   remote: https://rubygems.org/
   specs:
@@ -280,6 +254,16 @@ GEM
       rubocop-performance (>= 1.24)
       rubocop-rails (>= 2.30)
     ruby-progressbar (1.13.0)
+    ruflet (0.0.23)
+      rqrcode (~> 2.2)
+    ruflet_core (0.0.23)
+    ruflet_rails (0.0.23)
+      rails (>= 7.0)
+      ruflet (>= 0.0.23)
+      ruflet_core (>= 0.0.23)
+      ruflet_server (>= 0.0.23)
+    ruflet_server (0.0.23)
+      ruflet_core (= 0.0.23)
     securerandom (0.4.1)
     sqlite3 (2.9.5-aarch64-linux-gnu)
     sqlite3 (2.9.5-aarch64-linux-musl)
@@ -340,10 +324,7 @@ DEPENDENCIES
   puma (>= 5.0)
   rails (~> 8.1.3)
   rubocop-rails-omakase
-  ruflet!
-  ruflet_core!
-  ruflet_rails!
-  ruflet_server!
+  ruflet_rails (>= 0.0.23)
   sqlite3 (>= 2.1)
   stimulus-rails
   thruster
@@ -437,10 +418,10 @@ CHECKSUMS
   rubocop-rails (2.35.5) sha256=f00b3c936002ba8e9ac62e8607c54bb24cda44b36e41b9c7e4f3872e1b0f3fe3
   rubocop-rails-omakase (1.1.0) sha256=2af73ac8ee5852de2919abbd2618af9c15c19b512c4cfc1f9a5d3b6ef009109d
   ruby-progressbar (1.13.0) sha256=80fc9c47a9b640d6834e0dc7b3c94c9df37f08cb072b7761e4a71e22cff29b33
-  ruflet (0.0.21)
-  ruflet_core (0.0.21)
-  ruflet_rails (0.0.16)
-  ruflet_server (0.0.21)
+  ruflet (0.0.23) sha256=1ac926d0af6049d71ab29c675f69752e8866f67ebe598e4fc5fb6052b32ed9a7
+  ruflet_core (0.0.23) sha256=0bf671a359bb81935ad10442da9ec3c160f00212f03d7b370954dc415da6524d
+  ruflet_rails (0.0.23) sha256=af988315abe6e71d5052367bd0997406814b9aafd00e6302e2b7d474dd5fe259
+  ruflet_server (0.0.23) sha256=ee919ae95975f090696e39bf7aa441b12b8f7144108779423a0b426e74f791b9
   securerandom (0.4.1) sha256=cc5193d414a4341b6e225f0cb4446aceca8e50d5e1888743fac16987638ea0b1
   sqlite3 (2.9.5-aarch64-linux-gnu) sha256=78075b6337d3d182c6d2b4691049ed45cd220826160c9ea18946bf6a1de200dc
   sqlite3 (2.9.5-aarch64-linux-musl) sha256=18c801185deb4adc01ddb281e8f672a39e3d1729979ca91e39439cd3eac0402d

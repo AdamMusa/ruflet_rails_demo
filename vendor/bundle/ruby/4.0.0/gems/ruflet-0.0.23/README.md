@@ -1,0 +1,75 @@
+# ruflet
+
+`ruflet` is the command-line package for creating, running, diagnosing, and
+building Ruflet applications.
+
+## Install
+
+```bash
+gem install ruflet
+```
+
+Create a project and run it:
+
+```bash
+ruflet new my_app
+cd my_app
+bundle install
+ruflet run --web
+```
+
+Generated projects include `ruflet_core` and `ruflet_server` as application
+dependencies. Run Ruflet commands directly inside the generated project.
+
+## Commands
+
+```bash
+ruflet new <appname>
+ruflet run [scriptname|path] [--web|--desktop] [--port PORT]
+ruflet debug [scriptname|path]
+ruflet devices
+ruflet emulators
+ruflet doctor [--fix]
+ruflet update [web|desktop|all] [--check] [--force]
+ruflet build <apk|android|ios|ipa|aab|web|macos|windows|linux> [--lite|--full|--self]
+ruflet install [--device DEVICE_ID]
+```
+
+`--lite` creates the compact self-contained build: project Ruby is precompiled
+when the matching mruby compiler is available, and the bundled VM starts in
+parallel with Flutter. `--self` remains an alias for this profile.
+Combining `--self --full` selects the full profile; `--self` does not override
+an explicit `--full`.
+
+`--full` packages the locked production bundle from `Gemfile.lock` and selects
+a target-specific CRuby runtime. Set `RUFLET_FULL_RUNTIME_PATH`, or
+`build.full_runtime_path` in `ruflet.yaml`, to a Flutter package named
+`ruby_runtime` with a `ruflet-full-runtime.json` manifest for the target.
+Ruflet refuses to substitute the lite mruby engine for a requested full build.
+
+Before Flutter resolves or bundles packages, Ruflet removes extension plugins
+that are not selected by the current services/extensions configuration.
+
+`ruflet run --desktop` downloads the Ruflet Explorer prebuild for the host the
+first time, reuses its versioned cache afterward, and launches it with the
+current backend URL.
+
+Commands that create, diagnose, or build a Flutter client compare the cached
+template revision with `AdamMusa/ruflet-template` on GitHub. When `main`
+changes, Ruflet downloads the new template and refreshes its managed
+`build/client` automatically. If GitHub is unavailable, Ruflet keeps using the
+last complete cached template. Use `ruflet doctor --fix` to force a clean
+template download.
+
+Desktop and web runs use the completed `prebuild-main` client channel by
+default. Ruflet checks the channel at most once every six hours and downloads
+a new platform build only after every required prebuild job has finished.
+Use `ruflet update --force` for an immediate refresh. Set
+`RUFLET_CLIENT_CHANNEL=stable` to stay on versioned release assets,
+`RUFLET_CLIENT_UPDATE_INTERVAL=0` to check on every run, or
+`RUFLET_CLIENT_AUTO_UPDATE=0` to disable automatic client updates.
+
+Run `ruflet install` without `--device` to choose from a numbered list of
+connected devices. Pass `--device DEVICE_ID` to skip the prompt.
+
+Run `ruflet help <command>` for all options.
