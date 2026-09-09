@@ -23,7 +23,7 @@ Rails.application.routes.draw do
   # template re-renders. Nothing goes through Rails routing or middleware, so
   # there is no request per interaction.
   match "/ws", to: Ruflet::Rails.native { |page|
-    page.padding = 0
-    Ruflet::Rails.erb_to_native(page, start_url: "/native", title: "Ruflet Native")
+    Ruflet::Rails.erb_to_native(page, start_url: "/native")
+    page.update(page.views.first, bgcolor: "#FFFFFF", padding: 0)
   }, via: :all
 end
