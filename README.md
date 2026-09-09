@@ -18,10 +18,12 @@ config/initializers/ruflet.rb    app name, services, extensions, build artwork
 ## Run
 
 ```bash
-bin/rails server -b 0.0.0.0 -p 3000
+bin/rails server -b 0.0.0.0
 ```
 
-Connect Ruflet Explorer or `ruflet_app` to `http://127.0.0.1:3000`. The same
+The server defaults to port 3030, including when started with `bin/dev`.
+
+Connect Ruflet Explorer or `ruflet_app` to `http://127.0.0.1:3030`. The same
 URLs also render as ordinary HTML in a browser, which is what keeps the screens
 inspectable.
 
@@ -37,7 +39,8 @@ cd ../../RufletApp/demo
 ../../FlutterApp/ruflet/packages/ruflet/bin/ruflet run hybride
 ```
 
-Open the Rails tab to display this app through `ruflet_app`. On a physical
+Set `RAILS_URL` in `hybride.rb` to `http://127.0.0.1:3030`, then open the Rails
+tab to display this app through `ruflet_app`. On a physical
 phone, replace `127.0.0.1` in `hybride.rb` with the computer's LAN address.
 
 ## Writing a screen

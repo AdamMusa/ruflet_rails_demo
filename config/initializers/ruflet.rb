@@ -3,7 +3,7 @@
 Ruflet::Rails.configure do |config|
   # Keep this URL aligned with the Rails server. RufletApp/demo/hybride.rb uses
   # the same base URL to mount this server-driven section inside a normal app.
-  config.backend_url = ENV.fetch("RUFLET_BACKEND_URL", "http://127.0.0.1:3000")
+  config.backend_url = ENV.fetch("RUFLET_BACKEND_URL", "http://127.0.0.1:3030")
   config.app_name = "Ruflet Rails Demo"
 
   # Build artwork. In a Rails app this initializer is the source of truth —
